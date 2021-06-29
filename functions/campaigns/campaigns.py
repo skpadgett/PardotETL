@@ -18,7 +18,7 @@ from time import sleep
 
 def campaigns_func(event, context):
 # Create class for writing to s3 bucket
-        class S3JsonBucket:
+    class S3JsonBucket:
         def __init__(self, bucket_name):
             self.bucket = boto3.resource("s3").Bucket(bucket_name)
 

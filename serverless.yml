@@ -1,0 +1,57 @@
+service: pardotetl
+configValidationMode: off
+provider:
+  name: aws
+  lambdaHashingVersion: "20201221"
+  iam:
+    role:
+      managedPolicies:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaRole
+  runtime: python3.6
+  memorySize: 128
+  timeout: 30
+  tags:
+    application: PardotETL
+  region: ${opt:region, 'us-east-2' }
+  stage: ${opt:stage, 'dev'}
+  environment:
+    s3FileStore: ${self:custom.uploads_bucket_name}
+    vaMaxIdKey: visitor_activity_maxid
+    visitorActivityKey: visitor_activity
+    environment_name: ${opt:environment_name, 'dev'}
+    PARAMETER_NAMESPACE: "/${self:service}-app-${self:provider.environment.environment_name}/"
+
+custom:
+  uploads_bucket_name: "${self:service}-pardot-snowflake-uploads-${self:provider.stage}"
+  timezone:
+    us-east-2: "US/Central"
+  vpcconfig:
+    securityGroupIds:
+      - ${ssm:${self:provider.environment.PARAMETER_NAMESPACE}default_security_group}
+    subnetIds: !Split [",", "${ssm:${self:provider.environment.PARAMETER_NAMESPACE}lambda_subnet_ids}"]
+
+functions:
+  PardotVistitorActivity:
+    handler: functions/PardotVisitorActivity/visitoractivities.lambda_handler
+    events:
+      - schedule:
+          name: pardot-visitor-activity-${self:provider.environment.environment_name}
+          rate: rate(15 minutes)
+    timeout: 900
+    reservedConcurrency: 1
+    vpc: ${self:custom.vpcconfig}
+
+
+# Download Serverless
+https://www.serverless.com/framework/docs/providers/aws/guide/installation/
+
+# Open up Powershell
+
+# Paste environmental variable AWS credentials into powershell
+  # They're on the start page
+
+# Navigate to the folder with the serverless.yml. Run these one-by-one
+serverless package   --stage us-east-2-prod --environment_name us-prod --region us-east-2
+serverless deploy   --stage us-east-2-prod --environment_name us-prod --region us-east-2
