@@ -17,6 +17,7 @@ provider:
   region: ${opt:region, 'us-east-2' }
   stage: ${opt:stage, 'dev'}
   environment:
+    PardotTaskPrefix: ${self:service}-${self:provider.stage}
     pardotEmail: email
     pardotUserKey: f5a1dc61d079e35d9a2066a4a8498c32
     pardotSfConsumerKey: 3MVG9IHf89I1t8hpom1l0QzbTANHH.MOASIZ3yPPhu6hFI_uipXiYi7ku85yMWg_2gXxu5bzAyWCevOHp4jrf
@@ -38,25 +39,48 @@ custom:
     subnetIds: !Split [",", "${ssm:${self:provider.environment.PARAMETER_NAMESPACE}lambda_subnet_ids}"]
 
 functions:
-  PardotVistitorActivity:
-    handler: functions/PardotVisitorActivity/visitoractivities.lambda_handler
+  PardotBatch:
+    handler: functions/PardotBatch/PardotBatch.lambda_handler
     events:
       - schedule:
-          name: pardot-visitor-activity-${self:provider.environment.environment_name}
-          rate: rate(15 minutes)
+          name: pardot-etl-${self:provider.environment.environment_name}
+          rate: rate(17 minutes)
     timeout: 900
     reservedConcurrency: 1
     vpc: ${self:custom.vpcconfig}
 
+  PardotPull:
+    handler: functions/PardotPull/PardotPull.lambda_handler
+    layers:
+      - {Ref: GeneralDependenciesLambdaLayer}
+    timeout: 900
+    reservedConcurrency: 11
+    vpc: ${self:custom.vpcconfig}
 
-# Download Serverless
-https://www.serverless.com/framework/docs/providers/aws/guide/installation/
+layers:
+  GeneralDependencies:
+    path: layers/pardot_general_dependencies
+    name: pardot_general_dependencies
+    compatibleRuntimes:
+      - python3.6
 
-# Open up Powershell
-
-# Paste environmental variable AWS credentials into powershell
-  # They're on the start page
-
-# Navigate to the folder with the serverless.yml. Run these one-by-one
-serverless package   --stage us-east-2-prod --environment_name us-prod --region us-east-2
-serverless deploy   --stage us-east-2-prod --environment_name us-prod --region us-east-2
+package:
+  individually: true
+  excludeDevDependencies: false
+  exclude:
+    - node_modules/**
+    - .venv/**
+    - .git/**
+    - .pytest_cache/**
+    - .vscode/**
+    - .idea/**
+    - .package/**
+    - .package-qa/**
+    - README.md
+    - requirements/**
+    - test_resources/**
+    - resources.yml
+    - sql_scripts/**
+    - readme_pics/**
+    - Deprecated/**
+    - .github/**
