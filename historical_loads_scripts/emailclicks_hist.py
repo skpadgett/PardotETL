@@ -1,5 +1,5 @@
-# Pardot Extract - opportunities (history - created before this month ), write to same
-#   s3 folder as current.
+# Pardot Extract - emailclicks (created before this month i.e. gets current month thru today)
+
 #
 # For local execution of this script, requires temporary access credentials entered
 # at command line. See...
@@ -20,10 +20,8 @@ from time import sleep
 class S3JsonBucket:
     def __init__(self, bucket_name):
         self.bucket = boto3.resource("s3").Bucket(bucket_name)
-
     def load(self, key):
         return json.load(self.bucket.Object(key=key).get()["Body"])
-
     def dump(self, key, obj):
         return self.bucket.Object(key=key).put(Body=json.dumps(obj))
 
@@ -33,21 +31,22 @@ p=PardotAPI(email='segment_integrations@discoveryed.com',user_key='f5a1dc61d079e
 # Iterative retrieval of 200 record blocks (api constraint). 
 # Write file to s3 with datetime suffix for each 200 block iteration
 #################################################
-
+#2020-04-15 00:00:01
 maxid=0
 i=0
 jsbucket = S3JsonBucket("de-sandbox-us-east-2")
-#
-#original when testing for 1 month
-while i <=p.opportunities.query(created_before='today')['total_results'] -1: 
-   data=p.opportunities.query(format='json',sort_by='id',created_before='today',id_greater_than=maxid)
-   maxid=data['opportunity'][-1]['id']
-   writetime=time.strftime("%Y%m%d-%H%M%S") 
-   jsbucket.dump("opportunities/" + "opportunities_" + writetime + ".json", data)
-   sleep(1)   # 1 sec delay to insure different filenames
-   i=i+200	
 
-
-
-
-
+#while i <=p.emailclicks.query(created_before='this_month')['total_results'] -1: 
+#  data=p.emailclicks.query(format='json',sort_by='id',created_before='this_month',id_greater_than=maxid)
+#  maxid=data['emailClick'][-1]['id']
+#  writetime=time.strftime("%Y%m%d-%H%M%S") 
+#  jsbucket.dump("test/emailclicks/" + "emailclicks_" + writetime + ".json", data)
+#  sleep(1)   # 1 sec delay to insure different filenames
+#  i=i+200	  
+while i <=p.emailclicks.query(created_before='today')['total_results'] -1: 
+  data=p.emailclicks.query(format='json',sort_by='id',created_before='today',id_greater_than=maxid)
+  maxid=data['emailClick'][-1]['id']
+  writetime=time.strftime("%Y%m%d-%H%M%S") 
+  jsbucket.dump("emailclicks/" + "emailclicks_" + writetime + ".json", data)
+  sleep(1)   # 1 sec delay to insure different filenames
+  i=i+200
