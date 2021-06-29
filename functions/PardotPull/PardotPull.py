@@ -15,6 +15,7 @@ from smart_open import smart_open
     # I guess just query the data and keep track of the max time to store in a file
 #TODO, need to have a query of snowflake if a max doesn't exist
 #TODO, maybe also have it check snowflake and take the larger value of the two
+# required format for 'update_after' -> 2021-04-15 00:00:01
 
 # Gather environmental variables
 email = environ.get('pardotEmail')
