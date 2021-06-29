@@ -41,13 +41,13 @@ def prospects_func(event, context):
 # For larger extracts, insert.... created_after='last_month' into p.cxxxx.query() below
 # for ongoing/daily extracts
 #
-   while i <=p.prospects.query(created_after='yesterday',created_before='today')['total_results'] -1: 
-     data=p.prospects.query(format='json',sort_by='id',created_after='yesterday',created_before='today',id_greater_than=maxid)
-     maxid=data['prospect'][-1]['id']
-     writetime=time.strftime("%Y%m%d-%H%M%S") 
-     jsbucket.dump("prospects/" + "prospects_" + writetime + ".json", data)
-     sleep(1)   # 1 sec delay to insure different filenames
-     i=i+200
+    while i <=p.prospects.query(created_after='yesterday',created_before='today')['total_results'] -1: 
+        data=p.prospects.query(format='json',sort_by='id',created_after='yesterday',created_before='today',id_greater_than=maxid)
+        maxid=data['prospect'][-1]['id']
+        writetime=time.strftime("%Y%m%d-%H%M%S") 
+        jsbucket.dump("prospects/" + "prospects_" + writetime + ".json", data)
+        sleep(1)   # 1 sec delay to insure different filenames
+        i=i+200
         
 if __name__ == '__main__':
     prospects_func()

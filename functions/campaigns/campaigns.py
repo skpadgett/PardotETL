@@ -18,7 +18,7 @@ from time import sleep
 
 def campaigns_func(event, context):
 # Create class for writing to s3 bucket
-        class S3JsonBucket:
+    class S3JsonBucket:
         def __init__(self, bucket_name):
             self.bucket = boto3.resource("s3").Bucket(bucket_name)
 
@@ -44,7 +44,7 @@ def campaigns_func(event, context):
         data=p.campaigns.query(format='json',sort_by='id',id_greater_than=maxid)
         maxid=data['campaign'][-1]['id']
         writetime=time.strftime("%Y%m%d-%H%M%S") 
-        jsbucket.dump("test/campaigns/" + "campaigns_" + writetime + ".json", data)
+        jsbucket.dump("campaigns/" + "campaigns_" + writetime + ".json", data)
         sleep(1)   # 1 sec delay to insure different filenames
         i=i+200	 
 
