@@ -11,11 +11,12 @@ from smart_open import smart_open
 
 #TODO, figure out if that nested while loop works
 #TODO, setup exception handler for batch and for task
-#TODO, instead of using max ID, need to use max update datetime from the data
+#TODO, instead of using max ID, need to use max update datetime from the data to filter pardot. 
     # I guess just query the data and keep track of the max time to store in a file
-#TODO, need to have a query of snowflake if a max doesn't exist
-#TODO, maybe also have it check snowflake and take the larger value of the two
-# required format for 'update_after' -> 2021-04-15 00:00:01
+#TODO, need to have a query of snowflake if a max doesn't exist in the bucket
+#TODO, maybe also have it check snowflake and take the larger value of the two incase an error happens with S3 write
+    # its ok to have duplicates, snowflake handles. But not ideal
+# required format for 'update_after' in pardot query -> 2021-04-15 00:00:01
 
 # Gather environmental variables
 email = environ.get('pardotEmail')
@@ -57,6 +58,7 @@ def lambda_handler(event, context):
     {data_length} were pulled""")
 
     # Return results to batch script
+    # TODO We should have the response return that max last_modified_date found in the data
     return {
         'statusCode': 200,
         'body': {'DataType': data_type, 'Result': 'Successful', 'NumberofRecords': data_length,
@@ -119,7 +121,10 @@ def execute(data_type,timeout):
 
         # Do we need separate ones for different files?
         jsbucketMaxID=boto3.resource("s3").Bucket(bucket)
-    
+
+        # TODO, this needs to be re-written to focus on max modified date instead of MAXID
+        # TODO, we also might have the batch job handle this process
+        # TODO and pass as a task parameter
         #Iterate through files to get the latest max id
         maxIdFiles = jsbucketMaxID.objects.filter(Prefix=f'{data_type}/maxid')
         if len(maxIdFiles)>0:
@@ -137,8 +142,13 @@ def execute(data_type,timeout):
         jsbucketDump = S3JsonBucket(bucket)
         total_records = 0
 
+        # So we want this to stop running after 13 minutes. We want to guarentee that batch runner doesn't timeout
+        # waiting for this
+        #TODO, figure out if this while loop works
         while True:
-
+            
+            # This query needs to be changed to us last_updated_dt. We also want to have this passed
+            # as a parameter by the batch
             while i <= data_client.query(id_greater_than=maxid)['total_results'] -1: 
 
                 data=data_client.query(format='json',sort_by='id',id_greater_than=maxid)
