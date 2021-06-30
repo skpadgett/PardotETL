@@ -1,0 +1,86 @@
+service: pardotetl
+configValidationMode: off
+provider:
+  name: aws
+  lambdaHashingVersion: "20201221"
+  iam:
+    role:
+      managedPolicies:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaRole
+  runtime: python3.6
+  memorySize: 128
+  timeout: 30
+  tags:
+    application: PardotETL
+  region: ${opt:region, 'us-east-2' }
+  stage: ${opt:stage, 'dev'}
+  environment:
+    PardotTaskPrefix: ${self:service}-${self:provider.stage}
+    pardotEmail: email
+    pardotUserKey: f5a1dc61d079e35d9a2066a4a8498c32
+    pardotSfConsumerKey: 3MVG9IHf89I1t8hpom1l0QzbTANHH.MOASIZ3yPPhu6hFI_uipXiYi7ku85yMWg_2gXxu5bzAyWCevOHp4jrf
+    pardotSfConsumerSecret: BC6C2AA5D41DC0EBBBB3376CD329E92E66BD8D85DF85F9FAB9F22E86D857A29E
+    pardotSfRefreshToken: 5Aep8618yVsldz6rZPMv4ouelrGoRNAfdaLSjo3.ILw4jdNGemJVI_MNYFoNkN9g39GUXqUEgzw3ylEVMjxAU3X
+    pardotSfBusinessUnitID: 0Uv4P000000TNB0SAO 
+    pardotVersion: 4     
+    s3FileStore: ${self:custom.uploads_bucket_name}
+    environment_name: ${opt:environment_name, 'dev'}
+    PARAMETER_NAMESPACE: "/${self:service}-app-${self:provider.environment.environment_name}/"
+
+custom:
+  uploads_bucket_name: "${self:service}-pardot-snowflake-uploads-${self:provider.stage}"
+  timezone:
+    us-east-2: "US/Central"
+  vpcconfig:
+    securityGroupIds:
+      - ${ssm:${self:provider.environment.PARAMETER_NAMESPACE}default_security_group}
+    subnetIds: !Split [",", "${ssm:${self:provider.environment.PARAMETER_NAMESPACE}lambda_subnet_ids}"]
+
+functions:
+  PardotBatch:
+    handler: functions/PardotBatch/PardotBatch.lambda_handler
+    events:
+      - schedule:
+          name: pardot-etl-${self:provider.environment.environment_name}
+          rate: rate(17 minutes)
+    timeout: 900
+    reservedConcurrency: 1
+    vpc: ${self:custom.vpcconfig}
+
+  PardotPull:
+    handler: functions/PardotPull/PardotPull.lambda_handler
+    layers:
+      - {Ref: GeneralDependenciesLambdaLayer}
+    timeout: 900
+    reservedConcurrency: 11
+    vpc: ${self:custom.vpcconfig}
+
+layers:
+  GeneralDependencies:
+    path: layers/pardot_general_dependencies
+    name: pardot_general_dependencies
+    compatibleRuntimes:
+      - python3.6
+
+package:
+  individually: true
+  excludeDevDependencies: false
+  exclude:
+    - node_modules/**
+    - .venv/**
+    - .git/**
+    - .pytest_cache/**
+    - .vscode/**
+    - .idea/**
+    - .package/**
+    - .package-qa/**
+    - README.md
+    - requirements/**
+    - test_resources/**
+    - resources.yml
+    - sql_scripts/**
+    - readme_pics/**
+    - Deprecated/**
+    - .github/**

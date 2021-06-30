@@ -37,10 +37,7 @@ def prospects_func(event, context):
     maxid=0
     i=0
     jsbucket = S3JsonBucket("de-sandbox-us-east-2")
-#
-# For larger extracts, insert.... created_after='last_month' into p.cxxxx.query() below
-# for ongoing/daily extracts
-#
+
     while i <=p.prospects.query(created_after='yesterday',created_before='today')['total_results'] -1: 
         data=p.prospects.query(format='json',sort_by='id',created_after='yesterday',created_before='today',id_greater_than=maxid)
         maxid=data['prospect'][-1]['id']
