@@ -22,7 +22,7 @@ from time import sleep
 import os
 from smart_open import smart_open
 
-#def emailstats_func(event, context):
+# def emailstats_func(event, context):
 def emailstats_func():
 # Create class for writing to s3 bucket
     class S3csvBucket:
@@ -32,14 +32,14 @@ def emailstats_func():
         def dump(self, key, obj):
             return self.bucket.Object(key=key).put(Body=(obj))
            
-    #bucket_name="de-sandbox-us-east-2"        
-# listemailid bucket processing
+    # bucket_name="de-sandbox-us-east-2"        
+    # listemailid bucket processing
     snapshot_date=time.strftime("%Y-%m-%d")  
     tbucket_name="de-sandbox-us-east-2"        
     csvbucket = S3csvBucket(tbucket_name)
     csvbucket2=boto3.resource("s3").Bucket(tbucket_name)
-#    aws_key = os.environ['AWS_ACCESS_KEY_ID']
-#    aws_secret = os.environ['AWS_SECRET_ACCESS_KEY']   
+    # aws_key = os.environ['AWS_ACCESS_KEY_ID']
+    # aws_secret = os.environ['AWS_SECRET_ACCESS_KEY']   
     last_modified_date = datetime(1939, 9, 1).replace(tzinfo=None)
     for file in csvbucket2.objects.filter(Prefix='listemailids/Tier_1/ListEmailIds_to_S3 for email Stats'):    
         file_date = file.last_modified.replace(tzinfo=None)
