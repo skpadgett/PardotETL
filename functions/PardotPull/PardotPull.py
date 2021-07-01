@@ -142,22 +142,22 @@ def execute(data_type, timeout) -> (int, dt.datetime):
     ):
         # This query needs to be changed to us last_updated_dt. We also want to have this passed
         # as a parameter by the batch
+        FORMAT_WRITETIME = "%Y%m%d-%H%M%S"
 
         data = data_client.query(format="json", sort_by="id", id_greater_than=maxid)
 
-        writetime = time.strftime("%Y%m%d-%H%M%S")
-
-        file_name = f"test/{data_type}/{data_type}_{writetime}.json"
+        file_name = (
+            f"test/{data_type}/{data_type}_{time.strftime(FORMAT_WRITETIME)}.json"
+        )
         jsbucketDump.dump(file_name, data)
-
         print(f"Sent {file_name} to {BUCKET} with {len(data.keys())} records")
 
-        writetime = time.strftime("%Y%m%d-%H%M%S")
+        writetime = time.strftime(FORMAT_WRITETIME)
         jsbucketDump.dump(f"{data_type}/{data_type}_{writetime}.json", data)
 
         # write current maxid to S3 - If lambda times out, next execution will pickup with this value of maxid.
         maxid = data[data_type][-1]["id"]
-        jsbucketDump.dump(f"{data_type}_maxid/" + "maxid_" + writetime + ".json", maxid)
+        jsbucketDump.dump(f"{data_type}_maxid/maxid_{writetime}.json", maxid)
         print(f"updated maxid={maxid}")
 
         sleep(1)  # 1 sec delay to insure different filenames
