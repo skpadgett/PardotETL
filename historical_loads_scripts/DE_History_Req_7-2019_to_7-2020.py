@@ -1,5 +1,11 @@
 # Pardot Extract Historical Records via Export API - Visitors
 #
+# Notes on 4/15/2021 Execution:
+# Getting error in 
+#for key in fltr_key: str1=attrs[key]
+#auth='Bearer'+' '+str1
+# So manually constructed auth and then cut and pasted commands into python prompt:
+# Could not extract > 12 Months, so broke into two iterations 7/1/2019-4/15/2020; and 4/15/2020-4/15/2021
 # Prep Steps
 # 1. Create class for writing to s3 bucket
 # 2. Populate PardotAPI object
@@ -7,7 +13,9 @@
 # 4. Insert updated token into headers parameter
 # 5. Populate data parameter 
 # 6. API call to create extract request
-# 7. Iteratively  check status of extract request for up to xx minutes
+#
+# Following Done in separate job to avoid iteration over request status
+# Not Doing - 7. Iteratively  check status of extract request for up to xx minutes
 # 8. Iteratively process list of filenames created (still residing within Pardot)
 # 9.       - Retrieve Files and post to s3 bucket in test/visitors_hist/visitors/
 ###########################################################
@@ -57,7 +65,7 @@ params = (('format', 'json'),)
 #
 #Visitor
 #
-V_data = '{"object": "visitor","procedure": {"name": "filter_by_updated_at","arguments": {"updated_after": "2020-06-01 00:00:01","updated_before": "2021-03-06 00:00:01"}}}'
+#V_data = '{"object": "visitor","procedure": {"name": "filter_by_updated_at","arguments": {"updated_after": "2020-06-01 00:00:01","updated_before": "2020-04-15 00:00:01"}}}'
 #
 #Listmembership
 #
@@ -75,7 +83,7 @@ V_data = '{"object": "visitor","procedure": {"name": "filter_by_updated_at","arg
 #
 #First Request - Visitors
 #Header to use:
-V_data = '{"object": "visitor","procedure": {"name": "filter_by_updated_at","arguments": {"updated_after": "2021-01-01 00:00:01","updated_before": "2021-03-06 00:00:01"}}}'
+V_data = '{"object": "visitor","procedure": {"name": "filter_by_updated_at","arguments": {"updated_after": "2019-07-01 00:00:01","updated_before": "2020-07-01 00:00:01"}}}'
 #Create Extract Request
 response = requests.post('https://pi.pardot.com/api/export/version/4/do/create', headers=headers, params=params, data=V_data)
 # Get assigned export id
@@ -85,7 +93,7 @@ print('Vistor Export id =',exportid)
 
 #Second Request - Prospects
 #Header to use:
-V_data = '{"object": "prospect","procedure": {"name": "filter_by_updated_at","arguments": {"updated_after": "2021-01-01 00:00:01","updated_before": "2021-03-06 00:00:01"}}}'
+V_data = '{"object": "prospect","procedure": {"name": "filter_by_updated_at","arguments": {"updated_after": "2019-07-01 00:00:01","updated_before": "2020-07-01 00:00:01"}}}'
 #Create Extract Request
 response = requests.post('https://pi.pardot.com/api/export/version/4/do/create', headers=headers, params=params, data=V_data)
 # Get assigned export id
@@ -95,13 +103,33 @@ print('Prospects Export id =',exportid)
 
 #Third Request - Prospect Accounts
 #Header to use:
-V_data = '{"object": "prospectaccount","procedure": {"name": "filter_by_prospect_updated_at","arguments": {"prospect_updated_after": "2021-01-01 00:00:01","prospect_updated_before": "2021-03-06 00:00:01"}}}'	
+V_data = '{"object": "prospectaccount","procedure": {"name": "filter_by_prospect_updated_at","arguments": {"prospect_updated_after": "2019-07-01 00:00:01","prospect_updated_before": "2020-07-01 00:00:01"}}}'	
 #Create Extract Request
 response = requests.post('https://pi.pardot.com/api/export/version/4/do/create', headers=headers, params=params, data=V_data)
 # Get assigned export id
 response_dict=json.loads(response.text)
 exportid=response_dict['export']['id']
 print('Prospect Accounts Export id =',exportid)
+
+#Fourth Request - Listmembership
+#Header to use:
+V_data = '{"object": "listmembership","procedure": {"name": "filter_by_updated_at","arguments": {"updated_after": "2019-07-01 00:00:01","updated_before": "2020-07-01 00:00:01"}}}'
+#Create Extract Request
+response = requests.post('https://pi.pardot.com/api/export/version/4/do/create', headers=headers, params=params, data=V_data)
+# Get assigned export id
+response_dict=json.loads(response.text)
+exportid=response_dict['export']['id']
+print('Listmembership Export id =',exportid)
+
+#Fifth Request - VisitorActivity
+#Header to use:
+V_data = '{"object": "visitorActivity","procedure": {"name": "filter_by_created_at","arguments": {"created_after": "2019-07-01 00:00:01","created_before": "2020-07-01 00:00:01"}}}'
+#Create Extract Request
+response = requests.post('https://pi.pardot.com/api/export/version/4/do/create', headers=headers, params=params, data=V_data)
+# Get assigned export id
+response_dict=json.loads(response.text)
+exportid=response_dict['export']['id']
+print('VisitorActivity Export id =',exportid)
 
 
 
