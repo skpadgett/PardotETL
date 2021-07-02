@@ -20,7 +20,7 @@
 # 9.       - Retrieve Files and post to s3 bucket in test/visitors_hist/visitors/
 ###########################################################
 
-from pypardot.client2 import PardotAPI		  #Pardot API Wrapper	
+from pypardot.client import PardotAPI		  #Pardot API Wrapper	
 import pandas as pd							  # Dataframe and data transformation functions   #included in layer
 
 import time
@@ -130,7 +130,11 @@ response = requests.post('https://pi.pardot.com/api/export/version/4/do/create',
 response_dict=json.loads(response.text)
 exportid=response_dict['export']['id']
 print('VisitorActivity Export id =',exportid)
-
+##########################################################
+#############################################################
+#   Date range - after 2020-07-01 before 2021-07-01
+#########################################################
+##########################################################
 
 
 
