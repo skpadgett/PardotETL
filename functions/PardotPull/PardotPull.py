@@ -1,3 +1,4 @@
+from functions.prospectaccounts.prospectaccounts import prospectaccounts_func
 from pypardot.client import PardotAPI
 import pandas as pd							  
 import boto3                                  
