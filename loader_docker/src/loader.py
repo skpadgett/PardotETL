@@ -1,44 +1,46 @@
+import os
 import io
 import time
 import json
 import datetime as dt
 import typing
 import requests
-from operator import itemgetter
-from pprint import pprint
-from os import environ
 
 import pandas as pd
 import boto3
 import snowflake.connector
 from pypardot.client import PardotAPI
-from smart_open import smart_open
 
 
 # Gather environmental variables
-PARDOT_EMAIL = environ.get("pardotEmail")
-PARDOT_USER_KEY = environ.get("pardotUserKey")
-PARDOT_SF_CONSUMER_KEY = environ.get("pardotSfConsumerKey")
-PARDOT_SF_CONSUMER_SECRET = environ.get("pardotSfConsumerSecret")
-PARDOT_SF_REFRESH_TOKEN = environ.get("pardotSfRefreshToken")
-PARDOT_BUSINESS_UNIT_ID = environ.get("pardotSfBusinessUnitID")
-PARDOT_API_VERSION = environ.get("pardotVersion")
+PARDOT_EMAIL = os.environ["pardotEmail"]
+PARDOT_USER_KEY = os.environ["pardotUserKey"]
+PARDOT_SF_CONSUMER_KEY = os.environ["pardotSfConsumerKey"]
+PARDOT_SF_CONSUMER_SECRET = os.environ["pardotSfConsumerSecret"]
+PARDOT_SF_REFRESH_TOKEN = os.environ["pardotSfRefreshToken"]
+PARDOT_BUSINESS_UNIT_ID = os.environ["pardotSfBusinessUnitID"]
+PARDOT_API_VERSION = os.environ["pardotVersion"]
 PARDOT_MAX_RESULT_COUNT = 200
-AWS_NAME_BUCKET = environ.get("s3FileStore", "test-pardot-etl")
-AWS_ACCESS_KEY_ID = environ.get("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = environ.get("AWS_SECRET_ACCESS_KEY")
-AWS_SESSION_TOKEN = environ.get("AWS_SESSION_TOKEN")
+AWS_NAME_BUCKET = os.environ.get("s3FileStore", "test-pardot-etl")
+AWS_ACCESS_KEY_ID = os.environ["AWS_ACCESS_KEY_ID"]
+AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
+AWS_SESSION_TOKEN = os.environ["AWS_SESSION_TOKEN"]
 SNOWFLAKE_ACCOUNT_IDENTIFIER = "UK29315"
 SNOWFLAKE_USER = "clroberts@discoveryed.com"
 SNOWFLAKE_PASS = r'$k{Xc:9l._n,3$e&V "G'
 
 TIMEOUT_SECONDS = 60 * 60 * 6  # <-- 6 Hour timeout
 PARDOT_URL_API = f"https://pi.pardot.com/api/export/version/{PARDOT_API_VERSION}"
-FORMAT_WRITETIME = "%Y%m%d-%H%M%S"
+FORMAT_WRITETIME = r"%Y%m%d-%H%M%S"
+FORMAT_DATETIME_API = r"%Y-%m-%d:%H:%M:%S"
+# ^ Depricated, isoformat only works
 INT_MAX_BUFFER = 1000
 # ^ Limit number of records of output file for segmented export to this number
 
 DICT_CONVERSION_PURAL = {
+    "Account": "accounts",
+    "EmailClick": "emailclicks",
+    "EmailStat": "emailstats",
     "VisitorActivity": "visitoractivities",
     "Campaign": "campaigns",
     "List": "lists",
@@ -48,8 +50,14 @@ DICT_CONVERSION_PURAL = {
     "Opportunity": "opportunities",
     "ProspectAccounts": "prospectaccounts",
     "Form": "forms",
-    "ListMemberships": "listmemberships",
+    "ListMembership": "listmemberships",
     "Visitor": "visitors",
+    "ProspectAccount": "prospectaccounts",
+}
+SET_DATA_TYPE_CREATED = {
+    # This set is for the data types that do not have a "updated_after" filter,
+    # and must be queried usng the "created_after" filter
+    "EmailClick",
 }
 
 
@@ -165,7 +173,12 @@ def export_bulk(data_type: str):
                     "arguments": {
                         "updated_after": (
                             dt.date.today() - dt.timedelta(days=1)
-                        ).isoformat(),  # "2021-01-01 00:00:01",
+                        ).isoformat(),
+                        **(
+                            dict(created_after=date_start.isoformat())
+                            if data_type in SET_DATA_TYPE_CREATED
+                            else {}
+                        ),
                         # "updated_before": (
                         #     dt.date.today() - dt.timedelta(days=0)
                         # ).isoformat(),  # "2021-01-02 00:00:01",
@@ -232,6 +245,11 @@ def export_bulk(data_type: str):
         print(f"Sent {file_name} to {AWS_NAME_BUCKET} with {_num_rows} records")
 
 
+def helper_to_camelCase(s: str) -> str:
+    "Return the same string with the first letter lowercase"
+    return str(s[0].lower() + s[1:])
+
+
 def export_segmented(data_type: str) -> int:
     "API export through regular, segmented API calls"
 
@@ -260,50 +278,85 @@ def export_segmented(data_type: str) -> int:
             return
 
         buffer = io.StringIO()
-        pd.DataFrame(data).to_csv(buffer)
+        pd.DataFrame(data).to_csv(buffer, index=False)
 
         file_name = (
             f"test/{data_type}/{data_type}_api_{time.strftime(FORMAT_WRITETIME)}.csv"
         )
-        bucket_destination.Object(key=file_name).put(Body=buffer)
+        bucket_destination.Object(key=file_name).put(Body=buffer.getvalue())
 
-    time_start: int = time.time()
-    id_max: int = 0
-    int_total_results_cumulative: int = 0
-    list_buffer_results: typing.List[dict] = []
-    while True:
-        # ^ Yes, this is dangerous, but its necessary for allowing more information
+        print(f"Wrote file {file_name} with {len(data)} rows")
 
-        data_raw = data_client.query(
-            format="json",
-            sort_by="id",
-            id_greater_than=id_max,
-            updated_after=date_start.isoformat(),
-        )
+    if not hasattr(data_client, "query"):
+        # If the data_client doesn't have a query method, try the "read" method
 
-        list_records = data_raw[data_type.lower()]
-        _total_results = int(data_raw["total_results"])
+        data = data_client.read()[helper_to_camelCase(data_type)]
 
-        id_max = int(list_records[-1]["id"])
-        int_total_results_cumulative += _total_results
+        if isinstance(data, dict):
+            # Assume only one record
 
-        list_buffer_results.extend(list_records)
+            _export_segmented_upload_helper([data])
+            int_total_results_cumulative = 1
 
-        if len(list_buffer_results) > INT_MAX_BUFFER:
-            _export_segmented_upload_helper(list_buffer_results)
-            list_buffer_results.clear()
+        elif isinstance(data, list):
+            # Assume mulitiple records
 
-        if _total_results < PARDOT_MAX_RESULT_COUNT:
-            # Reached end of results, break
-            break
+            _export_segmented_upload_helper(data)
+            int_total_results_cumulative = len(data)
 
-        if time.time() > (time_start + TIMEOUT_SECONDS):
-            raise Exception(
-                f"Timeout ({TIMEOUT_SECONDS} seconds) reached for data type {data_type !r}"
+    else:
+        # Data client has query method, proceeed
+
+        time_start: int = time.time()
+        id_max: int = 0
+        int_total_results_cumulative: int = 0
+        list_buffer_results: typing.List[dict] = []
+        while True:
+            # ^ Yes, this is dangerous, but its necessary for allowing more information
+
+            data_raw = data_client.query(
+                format="json",
+                sort_by="id",
+                id_greater_than=id_max,
+                updated_after=date_start.isoformat(),
+                **(
+                    dict(created_after=date_start.isoformat())
+                    if data_type in SET_DATA_TYPE_CREATED
+                    else {}
+                ),
             )
 
-    # Flush remaining results (if any)
-    _export_segmented_upload_helper(list_buffer_results)
+            list_records = data_raw[helper_to_camelCase(data_type)]
+            #                       ^ Key is camelCase
+            _total_results = int(data_raw["total_results"])
+
+            if _total_results == 0:
+                break
+
+            id_max = int(list_records[-1]["id"])
+            int_total_results_cumulative += _total_results
+
+            list_buffer_results.extend(list_records)
+
+            if len(list_buffer_results) >= INT_MAX_BUFFER:
+                _export_segmented_upload_helper(list_buffer_results)
+                list_buffer_results.clear()
+
+            if _total_results < PARDOT_MAX_RESULT_COUNT:
+                # Reached end of results, break
+                break
+
+            if time.time() > (time_start + TIMEOUT_SECONDS):
+                raise Exception(
+                    f"Timeout ({TIMEOUT_SECONDS} seconds) reached for data type {data_type !r}"
+                )
+
+        # Flush remaining results (if any)
+        _export_segmented_upload_helper(list_buffer_results)
+
+    print(
+        f"Total results written for data type {data_type !r}: {int_total_results_cumulative}"
+    )
 
     return int_total_results_cumulative
 
@@ -313,4 +366,33 @@ if __name__ == "__main__":
     # test_connection_pardot()
     # test_connection_aws()
     # export_bulk("VisitorActivity")
-    export_segmented("Campaign")
+    # export_segmented("Campaign")
+    # export_segmented("Tag")
+    # export_segmented("ProspectAccounts")
+
+    list_data_type_bulk = [
+        "ListMembership",
+        "Prospect",
+        "ProspectAccount",
+        "Visitor",
+        "VisitorActivity",
+    ]
+    list_data_type_segmented = [
+        "Campaign",
+        "Form",
+        "Tag",
+        # "TagObject",
+        "Opportunity",
+        # "EmailStat",
+        "EmailClick",
+        "List",
+        "Account",
+    ]
+
+    for data_type in list_data_type_bulk:
+        print(f"Starting bulk export for {data_type !r}")
+        export_bulk(data_type)
+
+    for data_type in list_data_type_segmented:
+        print(f"Starting segmented export for {data_type !r}")
+        export_segmented(data_type)

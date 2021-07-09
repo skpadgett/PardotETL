@@ -1,10 +1,22 @@
-FROM python:3.9.1-buster
+FROM python:3.9.6-buster
 
 RUN mkdir /main
 WORKDIR /main
 ADD . /main
 RUN pip install -r /main/src/requirements.txt
 
+# RUN . /main/secrets.sh
 
-EXPOSE 8000
-CMD ["python3", "/main/src/main.py"]
+ENV pardotEmail="segment_integrations@discoveryed.com"
+ENV pardotUserKey="f5a1dc61d079e35d9a2066a4a8498c32"
+ENV pardotSfConsumerKey="3MVG9IHf89I1t8hpom1l0QzbTANHH.MOASIZ3yPPhu6hFI_uipXiYi7ku85yMWg_2gXxu5bzAyWCevOHp4jrf"
+ENV pardotSfConsumerSecret="BC6C2AA5D41DC0EBBBB3376CD329E92E66BD8D85DF85F9FAB9F22E86D857A29E"
+ENV pardotSfRefreshToken="5Aep8618yVsldz6rZPMv4ouelrGoRNAfdaLSjo3.ILw4jdNGemJVI_MNYFoNkN9g39GUXqUEgzw3ylEVMjxAU3X"
+ENV pardotSfBusinessUnitID="0Uv4P000000TNB0SAO"
+ENV pardotVersion=4
+ENV AWS_ACCESS_KEY_ID="ASIA3FXKNT2YAFHCBZVU"
+ENV AWS_SECRET_ACCESS_KEY="M1IGdDP7XF80YbVo1Np9Z12P7T91U6cZrdQlNnlY"
+ENV AWS_SESSION_TOKEN="IQoJb3JpZ2luX2VjEKf//////////wEaCXVzLWVhc3QtMSJGMEQCHw3jVKdnxSYbU3eANIOPzxUddrkDrhQmhpCFfmowBCQCIQD//kMPOPwWUfOmIVr4VwbuxVCzzbtfhT8dScejvwutaiqlAwiQ//////////8BEAAaDDc2ODIxNzAzMDMyMCIMfukn6iTna+noZ89sKvkCRZfgPxWTOAcx7Ni8OIgckek+YllqCBY7OswLxKhlQra2SvAzh96d1EF3MPqqlv08IW6jYektGzo5v+BAsy5EmJ9Y3DBdP/G0MLGRQAgY1OpGyrhEYrW19ADzN+sK2bJAyLZdDBJzMXei+bMqkieIbciBoGr8DEwGj3u7LmhTnHjEZU6JhMRJwXWgXMT0U7VHXpmzq51vZp9wUnixtYmpB3p56DP6h6TvNKQXOy25lS2/C5YZ/XRCMJetifYoQAvVJQBroBUhjbLAgz8ImkNli2+LCR5pF+A5WDAtzSAqOCdA+pAJLnE0jkmx9rj7LyRzmad9zYvnuSbTbt4fG5hYTfY20wt9jHV5BUOg0tkYiYfnqsEdNYUwUu0ZTmeow8MLfpOrGlRblOVvQHnrNYaAw/du2sDU/6isrWI8EdmJnX726Nz2K2uiOr57f7IhwGUTMoTMckef04kRe4hFHyJxdl/pgPlnqdGM10c2wio4StVtCvMV3PIpcKQwtbihhwY6pwGaeHmfs40gcRNmuo86EiRzyrSu5UPpHfY6Hl0ksg/kQuKCweYWjOm0+v6E+6MYfVxbSQ6Qt/GnLFTBu7Mw2SCONRjP6uUBwDbc8bFSuA9nzV2UGPKVo8CYBkXE04jbO7X/ldolEcJaz4ZQapjS1UZYIZEBj7ytaQk6KukBrylDq5Ei9mPwhe2tKGEgCCfPXd0ygbSEcO58ReTOVWNd+60FqFHFw47ePA=="
+
+CMD ["python3", "/main/src/loader.py"]
+# ENTRYPOINT [ "run.sh" ]

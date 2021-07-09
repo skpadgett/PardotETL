@@ -1,5 +1,4 @@
-pypardot~=0.1
-smart_open~=5.1
+PyPardotSF~=0.1
 boto3~=1.17
 pandas~=1.2
 requests~=2.23
