@@ -21,11 +21,14 @@ PARDOT_BUSINESS_UNIT_ID = os.environ["pardotSfBusinessUnitID"]
 PARDOT_API_VERSION = os.environ["pardotVersion"]
 PARDOT_MAX_RESULT_COUNT = 200
 # AWS_NAME_BUCKET = os.environ.get("s3FileStore", "test-pardot-etl")
-AWS_NAME_BUCKET = "de-sandbox-us-east-2"
-AWS_ACCESS_KEY_ID = os.environ["AWS_ACCESS_KEY_ID"]
-AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
-AWS_SESSION_TOKEN = os.environ["AWS_SESSION_TOKEN"]
-AWS_REGION = "us-east-1"
+AWS_NAME_BUCKET = os.environ.get(
+    "AWS_NAME_BUCKET", "pardot-us-prod-20210729173046836600000001"
+)
+# "de-sandbox-us-east-2"
+# AWS_ACCESS_KEY_ID = os.environ["AWS_ACCESS_KEY_ID"]
+# AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
+# AWS_SESSION_TOKEN = os.environ["AWS_SESSION_TOKEN"]
+AWS_DEFAULT_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
 AWS_SNS_TOPIC_ARN_EMAIL_NOTIFICATION = (
     "arn:aws:sns:us-east-1:768217030320:test-topic-email-notification"
 )
@@ -110,8 +113,9 @@ def get_client_pardot() -> PardotAPI:
 
 def get_session_boto() -> boto3.Session:
     return boto3.Session(
-        aws_access_key_id=AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        region_name=AWS_DEFAULT_REGION
+        # aws_access_key_id=AWS_ACCESS_KEY_ID,
+        # aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
         # aws_session_token=AWS_SESSION_TOKEN,
     )
 
@@ -218,7 +222,8 @@ def test_connection_pardot():
 
 def test_connection_aws():
     s = get_session_boto()
-    print(dir(s))
+    print(s.client("s3").list_objects(Bucket=AWS_NAME_BUCKET))
+    # print(dir(s))
 
 
 def get_client_snowflake():
@@ -347,7 +352,7 @@ def export_bulk(data_type: str):
         global_num_calls_api += 1
 
         file_name = (
-            f"test/{data_type}/{data_type}_bulk_{time.strftime(FORMAT_WRITETIME)}.csv"
+            f"{data_type}/{data_type}_bulk_{time.strftime(FORMAT_WRITETIME)}.csv"
         )
         bucket_destination.Object(key=file_name).put(Body=response_data.text)
 
@@ -500,7 +505,7 @@ if __name__ == "__main__":
 
     try:
         test_connection_pardot()
-        # test_connection_aws()
+        test_connection_aws()
         # export_bulk("VisitorActivity")
         # export_segmented("Campaign")
         # export_segmented("Tag")
@@ -528,10 +533,10 @@ if __name__ == "__main__":
 
             session.client(
                 "sns",
-                region_name=AWS_REGION,
-                aws_access_key_id=AWS_ACCESS_KEY_ID,
-                aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-                aws_session_token=AWS_SESSION_TOKEN,
+                region_name=AWS_DEFAULT_REGION,
+                # aws_access_key_id=AWS_ACCESS_KEY_ID,
+                # aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+                # aws_session_token=AWS_SESSION_TOKEN,
             ).publish(
                 TargetArn=AWS_SNS_TOPIC_ARN_EMAIL_NOTIFICATION,
                 Message=f"PARDOT ERROR: {err.message}",
@@ -542,10 +547,10 @@ if __name__ == "__main__":
     else:
         session.client(
             "sns",
-            region_name=AWS_REGION,
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-            aws_session_token=AWS_SESSION_TOKEN,
+            region_name=AWS_DEFAULT_REGION,
+            # aws_access_key_id=AWS_ACCESS_KEY_ID,
+            # aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            # aws_session_token=AWS_SESSION_TOKEN,
         ).publish(
             TargetArn=AWS_SNS_TOPIC_ARN_EMAIL_NOTIFICATION,
             Message=f"PARDOT SUCCESS: Number of API calls: {global_num_calls_api :,}",
