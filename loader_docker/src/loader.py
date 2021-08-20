@@ -313,21 +313,26 @@ def export_bulk(data_type: str):
     while time.time() < (time_start + TIMEOUT_SECONDS):
         i += 1
 
-        response_status = requests.get(
-            f"{PARDOT_URL_API}/do/read/id/{response_create.json()['export']['id']}",
-            headers=headers,
-            params=(("format", "json"),),
-            # data=json.dumps(
-            #     {
-            #         "object": data_type,
-            #         "procedure": {
-            #             "name": "filter_by_updated_at",
-            #             "arguments": {},
-            #         },
-            #     }
-            # ),
-        )
-        global_num_calls_api += 1
+        try:
+            response_status = requests.get(
+                f"{PARDOT_URL_API}/do/read/id/{response_create.json()['export']['id']}",
+                headers=headers,
+                params=(("format", "json"),),
+                # data=json.dumps(
+                #     {
+                #         "object": data_type,
+                #         "procedure": {
+                #             "name": "filter_by_updated_at",
+                #             "arguments": {},
+                #         },
+                #     }
+                # ),
+            )
+        except KeyError as e:
+            print(response_create.json())
+            raise e
+        finally:
+            global_num_calls_api += 1
 
         state_export: str = response_status.json()["export"]["state"]
         if state_export in ["Waiting", "Processing"]:
@@ -495,7 +500,7 @@ if __name__ == "__main__":
         "Campaign",
         "Form",
         "Tag",
-        # "TagObject",
+        "TagObject",
         "Opportunity",
         # "EmailStat",
         "EmailClick",
@@ -504,8 +509,8 @@ if __name__ == "__main__":
     ]
 
     try:
-        test_connection_pardot()
-        test_connection_aws()
+        # test_connection_pardot()
+        # test_connection_aws()
         # export_bulk("VisitorActivity")
         # export_segmented("Campaign")
         # export_segmented("Tag")

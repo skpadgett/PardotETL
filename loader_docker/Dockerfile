@@ -21,7 +21,8 @@ ENV SNOWFLAKE_ACCOUNT_IDENTIFIER="UK29315.us-east-1"
 ENV SNOWFLAKE_USER="PardotEtlUser@discoveryed.com"
 ENV SNOWFLAKE_PASS="p@rd0tEtlUser"
 ENV AWS_DEFAULT_REGION="us-east-2"
-ENV AWS_NAME_BUCKET="pardot-us-prod-20210729173046836600000001"
+# ENV AWS_NAME_BUCKET="pardot-us-prod-20210729173046836600000001"
+ENV AWS_NAME_BUCKET="de-sandbox-us-east-2"
 
 # CMD ["python3", "/main/src/loader.py"]
 # ENTRYPOINT [ "run.sh" ]
