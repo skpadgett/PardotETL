@@ -2,4 +2,4 @@ PyPardotSF~=0.1
 boto3~=1.17
 pandas~=1.2
 requests~=2.23
-snowflake-connector-python~=2.4.6
+snowflake-connector-python~=2.4

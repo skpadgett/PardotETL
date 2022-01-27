@@ -20,14 +20,7 @@ PARDOT_SF_REFRESH_TOKEN = os.environ["pardotSfRefreshToken"]
 PARDOT_BUSINESS_UNIT_ID = os.environ["pardotSfBusinessUnitID"]
 PARDOT_API_VERSION = os.environ["pardotVersion"]
 PARDOT_MAX_RESULT_COUNT = 200
-# AWS_NAME_BUCKET = os.environ.get("s3FileStore", "test-pardot-etl")
-AWS_NAME_BUCKET = os.environ.get(
-    "AWS_NAME_BUCKET", "pardot-us-prod-20210729173046836600000001"
-)
-# "de-sandbox-us-east-2"
-# AWS_ACCESS_KEY_ID = os.environ["AWS_ACCESS_KEY_ID"]
-# AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
-# AWS_SESSION_TOKEN = os.environ["AWS_SESSION_TOKEN"]
+AWS_NAME_BUCKET = os.environ["AWS_NAME_BUCKET"]
 AWS_DEFAULT_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
 AWS_SNS_TOPIC_ARN_EMAIL_NOTIFICATION = (
     "arn:aws:sns:us-east-1:768217030320:test-topic-email-notification"
@@ -49,7 +42,7 @@ DATE_VERY_EARLY = dt.date(1900, 1, 1)
 DICT_CONVERSION_PURAL = {
     "Account": "accounts",
     "EmailClick": "emailclicks",
-    "EmailStat": "emailstats",
+    "Email": "emails",
     "VisitorActivity": "visitoractivities",
     "Campaign": "campaigns",
     "List": "lists",
@@ -63,12 +56,14 @@ DICT_CONVERSION_PURAL = {
     "Visitor": "visitors",
     "ProspectAccount": "prospectaccounts",
 }
+
 DICT_MAP_SNOWFLAKE_TABLE = {"Opportunity": "Opportunities"}
 SET_DATA_TYPE_CREATED = {
     # This set is for the data types that do not have a "updated_after" filter,
     # and must be queried usng the "created_after" filter
     "EmailClick",
 }
+
 global_num_calls_api: int = 0
 
 
@@ -114,9 +109,6 @@ def get_client_pardot() -> PardotAPI:
 def get_session_boto() -> boto3.Session:
     return boto3.Session(
         region_name=AWS_DEFAULT_REGION
-        # aws_access_key_id=AWS_ACCESS_KEY_ID,
-        # aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-        # aws_session_token=AWS_SESSION_TOKEN,
     )
 
 
@@ -135,16 +127,30 @@ def get_date_start_snowflake(data_type: str = None) -> dt.date:
     name_field_table = "UPDATED_AT"
     if data_type in {"EmailClick"}:
         name_field_table = "CREATED_AT"
+    if data_type in {"Email"}:
+        name_field_table = "CREATED_AT"
 
     cs = ctx.cursor()
     try:
-        cs.execute(
-            f"""SELECT max({name_field_table})
-            FROM {name_table_snowflake}
-            WHERE {name_field_table} IS NOT null"""
-        )
-        one_row = cs.fetchone()
-        result = one_row[0]
+        # Check if the table exists in SnowFlake
+        cs.execute(f"SHOW TABLES LIKE '{name_table_snowflake}' IN DEV_DATA_VAULT.Stage")
+        table_check = cs.fetchone()
+
+        if table_check is None:
+            result = None
+            # uncomment this and remove result = None
+            #raise Exception(f'{name_table_snowflake} doesn''t exist in SnowFlake. Add table & snowpipe')
+        else:
+            cs.execute(
+                f"""SELECT max({name_field_table})
+                FROM {name_table_snowflake}
+                WHERE {name_field_table} IS NOT null"""
+            )
+            one_row = cs.fetchone()
+            if one_row is None:
+                result = None
+            else:
+                result = one_row[0]
 
     finally:
         cs.close()
@@ -168,64 +174,6 @@ def get_date_start_snowflake(data_type: str = None) -> dt.date:
     # return dt.date.today() - dt.timedelta(days=1)
 
 
-def test_get_date_start_snowflake():
-    list_data_type_bulk = [
-        "ListMembership",
-        "Prospect",
-        "ProspectAccount",
-        "Visitor",
-        "VisitorActivity",
-    ]
-    list_data_type_segmented = [
-        "Campaign",
-        "Form",
-        "Tag",
-        # "TagObject",
-        "Opportunity",
-        # "EmailStat",
-        "EmailClick",
-        "List",
-        "Account",
-    ]
-
-    for data_type in list_data_type_bulk + list_data_type_segmented:
-        print(f"Running date grab for data type {data_type !r}")
-
-        result = get_date_start_snowflake(data_type)
-
-        print(f"Result for date grab for {data_type !r} is {result !r}")
-
-        assert isinstance(
-            result, dt.date
-        ), f"Returned type of data type {data_type !r} is not a date"
-
-
-def test_connection_pardot():
-    p = get_client_pardot()
-
-    print(
-        "Running test query: number of prosepects created after day before yesterday..."
-    )
-
-    prospects = p.prospects.query(
-        created_after=(dt.datetime.now() - dt.timedelta(days=2)).isoformat()
-    )
-    total = prospects["total_results"]  # total number of matching records
-
-    print(f"Total results: {total}")
-    # print(prospects)
-    print(next(iter(prospects["prospect"])))
-
-    # p.visitoractivities.query(created_after=dt.datetime.now().isoformat())
-    # print(p)
-
-
-def test_connection_aws():
-    s = get_session_boto()
-    print(s.client("s3").list_objects(Bucket=AWS_NAME_BUCKET))
-    # print(dir(s))
-
-
 def get_client_snowflake():
     return snowflake.connector.connect(
         user=SNOWFLAKE_USER,
@@ -236,21 +184,6 @@ def get_client_snowflake():
         database="DEV_DATA_VAULT",
         schema="STAGE",
     )
-
-
-def test_connection_snowflake():
-    print("Starting snowflake connection")
-    ctx = get_client_snowflake()
-
-    print("Starting snowflake test query")
-    cs = ctx.cursor()
-    try:
-        cs.execute("SELECT current_version()")
-        one_row = cs.fetchone()
-        print(one_row[0])
-    finally:
-        cs.close()
-    ctx.close()
 
 
 def export_bulk(data_type: str):
@@ -309,7 +242,7 @@ def export_bulk(data_type: str):
 
     time_start = time.time()
     i = 0
-    SECONDS_SLEEP = 5
+    SECONDS_SLEEP = 60
     while time.time() < (time_start + TIMEOUT_SECONDS):
         i += 1
 
@@ -334,9 +267,12 @@ def export_bulk(data_type: str):
         finally:
             global_num_calls_api += 1
 
+        print('Check for response status issue (expect "[export][state]")',response_status.json())
+
         state_export: str = response_status.json()["export"]["state"]
         if state_export in ["Waiting", "Processing"]:
             time.sleep(SECONDS_SLEEP)
+            #TODO, remove this it's useless
             if i % 6 == 0:
                 print(
                     f"STATUS: {state_export !r}... ({i * SECONDS_SLEEP} seconds wait time elapsed)"
@@ -438,6 +374,7 @@ def export_segmented(data_type: str) -> int:
         while True:
             # ^ Yes, this is dangerous, but its necessary for allowing more information
 
+            time.sleep(2)
             data_raw = data_client.query(
                 format="json",
                 sort_by="id",
@@ -488,7 +425,6 @@ def export_segmented(data_type: str) -> int:
 
 if __name__ == "__main__":
 
-    # test_connection_snowflake()
     list_data_type_bulk = [
         "ListMembership",
         "Prospect",
@@ -497,29 +433,22 @@ if __name__ == "__main__":
         "VisitorActivity",
     ]
     list_data_type_segmented = [
-        "Campaign",
-        "Form",
-        "Tag",
-        "TagObject",
-        "Opportunity",
-        # "EmailStat",
+        # "Campaign",
+        # "Form",
+        # "Tag",
+       # "TagObject", # look into this issue. reserved concurency problems
+        # "Opportunity",
+        #'Email',
         "EmailClick",
         "List",
         "Account",
     ]
 
     try:
-        # test_connection_pardot()
-        # test_connection_aws()
-        # export_bulk("VisitorActivity")
-        # export_segmented("Campaign")
-        # export_segmented("Tag")
-        # export_segmented("ProspectAccounts")
-        # test_get_date_start_snowflake()
 
-        for data_type in list_data_type_bulk:
-            print(f"Starting bulk export for {data_type !r}")
-            export_bulk(data_type)
+        # for data_type in list_data_type_bulk:
+        #     print(f"Starting bulk export for {data_type !r}")
+        #     export_bulk(data_type)
 
         for data_type in list_data_type_segmented:
             print(f"Starting segmented export for {data_type !r}")
@@ -539,26 +468,22 @@ if __name__ == "__main__":
             session.client(
                 "sns",
                 region_name=AWS_DEFAULT_REGION,
-                # aws_access_key_id=AWS_ACCESS_KEY_ID,
-                # aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-                # aws_session_token=AWS_SESSION_TOKEN,
             ).publish(
                 TargetArn=AWS_SNS_TOPIC_ARN_EMAIL_NOTIFICATION,
                 Message=f"PARDOT ERROR: {err.message}",
-                # Message=json.dumps({"default": json.dumps(message)}),
                 MessageStructure="string",
             )
         raise
     else:
+        
+        session = get_session_boto()
+        session.get_credentials()
+
         session.client(
             "sns",
             region_name=AWS_DEFAULT_REGION,
-            # aws_access_key_id=AWS_ACCESS_KEY_ID,
-            # aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-            # aws_session_token=AWS_SESSION_TOKEN,
         ).publish(
             TargetArn=AWS_SNS_TOPIC_ARN_EMAIL_NOTIFICATION,
             Message=f"PARDOT SUCCESS: Number of API calls: {global_num_calls_api :,}",
-            # Message=json.dumps({"default": json.dumps(message)}),
             MessageStructure="string",
         )
