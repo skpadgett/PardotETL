@@ -137,9 +137,7 @@ def get_date_start_snowflake(data_type: str = None) -> dt.date:
         table_check = cs.fetchone()
 
         if table_check is None:
-            return dt.date.today() - dt.timedelta(days=1)
-            # TODO uncomment this and remove result = None
-            #raise Exception(f'{name_table_snowflake} doesn''t exist in SnowFlake. Add table & snowpipe')
+            raise Exception(f'{name_table_snowflake} doesn''t exist in SnowFlake. Add table & snowpipe')
         else:
             cs.execute(
                 f"""SELECT max({name_field_table})
@@ -364,7 +362,7 @@ def export_segmented(data_type: str) -> int:
             int_total_results_cumulative = len(data)
 
     else:
-        # Data client has query method, proceeed
+        # Data client has query method, proceed
 
         time_start: int = time.time()
         id_max: int = 0
@@ -385,6 +383,7 @@ def export_segmented(data_type: str) -> int:
                     else {}
                 ),
             )
+
             global_num_calls_api += 1
 
             list_records = data_raw[helper_to_camelCase(data_type)]
@@ -461,8 +460,9 @@ def pull_missing_email_ids():
     """
     ctx = get_client_snowflake()
     cs = ctx.cursor()
-    snowflake_query = "select list_email_id, min(email_id) from dev_data_vault.marketing.visitor_activity where email_id is not null and list_email_id is not null group by list_email_id"
-    """select 
+
+    #TODO, update when email table exists
+    snowflake_query = """select 
         a.list_email_id, min(a.email_id) 
         from dev_data_vault.marketing.visitor_activity a
         join (select distinct list_email_id dev_data_vault.marketing.email) b
@@ -471,6 +471,7 @@ def pull_missing_email_ids():
         And b.list_email_id is null
         group by list_email_id
     """
+
     try:
         cs.execute(snowflake_query)
         missing_ids =  cs.fetchall()
@@ -527,7 +528,7 @@ if __name__ == "__main__":
         "Campaign",
         "Form",
         "Tag",
-        "TagObject", # look into this issue. reserved concurency problems
+        #"TagObject", # Figure out if you can remove types. This isn't every going to finish
         "Opportunity",
         "EmailClick",
         "List",
@@ -544,7 +545,7 @@ if __name__ == "__main__":
             print(f"Starting segmented export for {data_type !r}")
             export_segmented(data_type)
 
-        print("Starting export for 'Email'")
+        print("Starting segmented export for 'Email'")
         process_emails()
 
     except PardotAPIError as err:
