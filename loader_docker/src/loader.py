@@ -10,6 +10,7 @@ import pandas as pd
 import boto3
 import snowflake.connector
 from pypardot.client import PardotAPI, PardotAPIError
+from xml.etree import ElementTree
 
 # Gather environmental variables
 PARDOT_EMAIL = os.environ["pardotEmail"]
@@ -62,6 +63,7 @@ SET_DATA_TYPE_CREATED = {
     # This set is for the data types that do not have a "updated_after" filter,
     # and must be queried usng the "created_after" filter
     "EmailClick",
+    "TagObject",
 }
 
 global_num_calls_api: int = 0
@@ -127,8 +129,6 @@ def get_date_start_snowflake(data_type: str = None) -> dt.date:
     name_field_table = "UPDATED_AT"
     if data_type in {"EmailClick"}:
         name_field_table = "CREATED_AT"
-    if data_type in {"Email"}:
-        name_field_table = "CREATED_AT"
 
     cs = ctx.cursor()
     try:
@@ -137,8 +137,8 @@ def get_date_start_snowflake(data_type: str = None) -> dt.date:
         table_check = cs.fetchone()
 
         if table_check is None:
-            result = None
-            # uncomment this and remove result = None
+            return dt.date.today() - dt.timedelta(days=1)
+            # TODO uncomment this and remove result = None
             #raise Exception(f'{name_table_snowflake} doesn''t exist in SnowFlake. Add table & snowpipe')
         else:
             cs.execute(
@@ -170,7 +170,7 @@ def get_date_start_snowflake(data_type: str = None) -> dt.date:
             f"Unknown result: {result !r} from row {one_row !r} for data type {data_type !r}"
         )
 
-    # # Placeholder
+    ## Placeholder for testing
     # return dt.date.today() - dt.timedelta(days=1)
 
 
@@ -340,7 +340,6 @@ def export_segmented(data_type: str) -> int:
 
         file_name = (
             f"{data_type}/{data_type}_api_{time.strftime(FORMAT_WRITETIME)}.csv"
-            # f"test/{data_type}/{data_type}_api_{time.strftime(FORMAT_WRITETIME)}.csv"
         )
         bucket_destination.Object(key=file_name).put(Body=buffer.getvalue())
 
@@ -422,6 +421,97 @@ def export_segmented(data_type: str) -> int:
 
     return int_total_results_cumulative
 
+def pull_email_info(list_email_id,email_id,pardot_client):
+    # Avoid reserved concurrency issue with sleep
+    
+    global global_num_calls_api
+
+    time.sleep(2)
+
+    headers = {
+        "content-type": "application/json",
+        "Authorization": f"Bearer {pardot_client.sftoken}",
+        "Pardot-Business-Unit-Id": PARDOT_BUSINESS_UNIT_ID,
+    }
+
+    url = f"https://pi.pardot.com/api/email/version/4/do/read/id/{email_id}"
+    response = requests.get(
+            url,
+            headers=headers)
+    dom = ElementTree.fromstring(response.content)
+    email_dom = dom.findall('email')[0]
+    result = {
+        "email":email_dom.text.replace('\n','').replace('  ',''),
+        "email_id":email_dom.findall('id')[0].text,
+        "list_email_id":list_email_id,
+        "name":email_dom.findall('name')[0].text,
+        "subject":email_dom.findall('subject')[0].text,
+        "created_at":email_dom.findall('created_at')[0].text
+        }
+
+    global_num_calls_api += 1
+
+    return result
+
+def pull_missing_email_ids():
+    """
+    Pulls a list of all the list_email_ids that haven't been accounted for in the dev_data_vault.email table. V4 of 
+    the Pardot API doesn't allow you to pull out a batch of emails, so a workaround is to grab one email_id for
+    each list_email_id and extract the results (the results for every email_id across list_email_ids are the same)
+    """
+    ctx = get_client_snowflake()
+    cs = ctx.cursor()
+    snowflake_query = "select list_email_id, min(email_id) from dev_data_vault.marketing.visitor_activity where email_id is not null and list_email_id is not null group by list_email_id"
+    """select 
+        a.list_email_id, min(a.email_id) 
+        from dev_data_vault.marketing.visitor_activity a
+        join (select distinct list_email_id dev_data_vault.marketing.email) b
+        on a.list_email_id = b.list_email_id
+        where a.email_id is not null and a.list_email_id is not null 
+        And b.list_email_id is null
+        group by list_email_id
+    """
+    try:
+        cs.execute(snowflake_query)
+        missing_ids =  cs.fetchall()
+    finally:
+        cs.close()
+    ctx.close()
+    
+    return missing_ids
+
+def process_emails(data_type='Email'):
+
+    emails = pull_missing_email_ids()
+    p = get_client_pardot()
+
+    data = [pull_email_info(email[0],email[1],p) for email in emails]
+
+    def _export_segmented_upload_helper(data: typing.List[dict]):
+        "Transform list of dicts to CSV format, uploads to S3 bucket"
+        session_aws = get_session_boto()
+        bucket_destination = session_aws.resource("s3").Bucket(AWS_NAME_BUCKET)
+
+        assert isinstance(data, list)
+
+        if len(data) == 0:
+            return
+
+        buffer = io.StringIO()
+        pd.DataFrame(data).to_csv(buffer, index=False)
+
+        file_name = (
+            f"{data_type}/{data_type}_api_{time.strftime(FORMAT_WRITETIME)}.csv"
+        )
+        bucket_destination.Object(key=file_name).put(Body=buffer.getvalue())
+
+        print(f"Wrote file {file_name} with {len(data)} rows")
+
+    _export_segmented_upload_helper(data)
+
+    return
+
+  
 
 if __name__ == "__main__":
 
@@ -432,13 +522,13 @@ if __name__ == "__main__":
         "Visitor",
         "VisitorActivity",
     ]
+
     list_data_type_segmented = [
-        # "Campaign",
-        # "Form",
-        # "Tag",
-       # "TagObject", # look into this issue. reserved concurency problems
-        # "Opportunity",
-        #'Email',
+        "Campaign",
+        "Form",
+        "Tag",
+        "TagObject", # look into this issue. reserved concurency problems
+        "Opportunity",
         "EmailClick",
         "List",
         "Account",
@@ -446,13 +536,16 @@ if __name__ == "__main__":
 
     try:
 
-        # for data_type in list_data_type_bulk:
-        #     print(f"Starting bulk export for {data_type !r}")
-        #     export_bulk(data_type)
+        for data_type in list_data_type_bulk:
+            print(f"Starting bulk export for {data_type !r}")
+            export_bulk(data_type)
 
         for data_type in list_data_type_segmented:
             print(f"Starting segmented export for {data_type !r}")
             export_segmented(data_type)
+
+        print("Starting export for 'Email'")
+        process_emails()
 
     except PardotAPIError as err:
         if err.err_code in [
@@ -475,15 +568,15 @@ if __name__ == "__main__":
             )
         raise
     else:
-        
-        session = get_session_boto()
-        session.get_credentials()
+        print('Process Finished')
+        # session = get_session_boto()
+        # session.get_credentials()
 
-        session.client(
-            "sns",
-            region_name=AWS_DEFAULT_REGION,
-        ).publish(
-            TargetArn=AWS_SNS_TOPIC_ARN_EMAIL_NOTIFICATION,
-            Message=f"PARDOT SUCCESS: Number of API calls: {global_num_calls_api :,}",
-            MessageStructure="string",
-        )
+        # session.client(
+        #     "sns",
+        #     region_name=AWS_DEFAULT_REGION,
+        # ).publish(
+        #     TargetArn=AWS_SNS_TOPIC_ARN_EMAIL_NOTIFICATION,
+        #     Message=f"PARDOT SUCCESS: Number of API calls: {global_num_calls_api :,}",
+        #     MessageStructure="string",
+        # )
