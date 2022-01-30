@@ -425,7 +425,7 @@ def pull_email_info(list_email_id,email_id,pardot_client):
     
     global global_num_calls_api
 
-    time.sleep(2)
+    time.sleep(1)
 
     headers = {
         "content-type": "application/json",
@@ -437,16 +437,19 @@ def pull_email_info(list_email_id,email_id,pardot_client):
     response = requests.get(
             url,
             headers=headers)
-    dom = ElementTree.fromstring(response.content)
-    email_dom = dom.findall('email')[0]
-    result = {
-        "email":email_dom.text.replace('\n','').replace('  ',''),
-        "email_id":email_dom.findall('id')[0].text,
-        "list_email_id":list_email_id,
-        "name":email_dom.findall('name')[0].text,
-        "subject":email_dom.findall('subject')[0].text,
-        "created_at":email_dom.findall('created_at')[0].text
-        }
+    try:
+        dom = ElementTree.fromstring(response.content)
+        email_dom = dom.findall('email')[0]
+        result = {
+            "email":email_dom.text.replace('\n','').replace('  ',''),
+            "email_id":email_dom.findall('id')[0].text,
+            "list_email_id":list_email_id,
+            "name":email_dom.findall('name')[0].text,
+            "subject":email_dom.findall('subject')[0].text,
+            "created_at":email_dom.findall('created_at')[0].text
+            }
+    except:
+        print(response.content)
 
     global_num_calls_api += 1
 
@@ -537,13 +540,13 @@ if __name__ == "__main__":
 
     try:
 
-        for data_type in list_data_type_bulk:
-            print(f"Starting bulk export for {data_type !r}")
-            export_bulk(data_type)
+        # for data_type in list_data_type_bulk:
+        #     print(f"Starting bulk export for {data_type !r}")
+        #     export_bulk(data_type)
 
-        for data_type in list_data_type_segmented:
-            print(f"Starting segmented export for {data_type !r}")
-            export_segmented(data_type)
+        # for data_type in list_data_type_segmented:
+        #     print(f"Starting segmented export for {data_type !r}")
+        #     export_segmented(data_type)
 
         print("Starting segmented export for 'Email'")
         process_emails()
