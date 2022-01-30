@@ -371,7 +371,8 @@ def export_segmented(data_type: str) -> int:
         while True:
             # ^ Yes, this is dangerous, but its necessary for allowing more information
 
-            time.sleep(2)
+            time.sleep(1)
+
             data_raw = data_client.query(
                 format="json",
                 sort_by="id",
@@ -464,20 +465,31 @@ def pull_missing_email_ids():
     ctx = get_client_snowflake()
     cs = ctx.cursor()
 
-    #TODO, update when email table exists
+    # TODO, remove snowflake_query_2 when the tables are built
     snowflake_query = """select 
         a.list_email_id, min(a.email_id) 
         from dev_data_vault.marketing.visitor_activity a
-        join (select distinct list_email_id dev_data_vault.marketing.email) b
+        join (select distinct list_email_id from dev_data_vault.marketing.email) b
         on a.list_email_id = b.list_email_id
         where a.email_id is not null and a.list_email_id is not null 
         And b.list_email_id is null
-        group by list_email_id
+        group by a.list_email_id
+    """
+
+    snowflake_query_2 = """select 
+        a.list_email_id, min(a.email_id)
+        from dev_data_vault.marketing.visitor_activity a
+        where a.email_id is not null and a.list_email_id is not null 
+        group by a.list_email_id
     """
 
     try:
         cs.execute(snowflake_query)
         missing_ids =  cs.fetchall()
+    except:
+        # If email table doesn't exist (first run I think?)
+        cs.execute(snowflake_query_2)
+        missing_ids =  cs.fetchall()   
     finally:
         cs.close()
     ctx.close()
@@ -540,13 +552,13 @@ if __name__ == "__main__":
 
     try:
 
-        # for data_type in list_data_type_bulk:
-        #     print(f"Starting bulk export for {data_type !r}")
-        #     export_bulk(data_type)
+        for data_type in list_data_type_bulk:
+            print(f"Starting bulk export for {data_type !r}")
+            export_bulk(data_type)
 
-        # for data_type in list_data_type_segmented:
-        #     print(f"Starting segmented export for {data_type !r}")
-        #     export_segmented(data_type)
+        for data_type in list_data_type_segmented:
+            print(f"Starting segmented export for {data_type !r}")
+            export_segmented(data_type)
 
         print("Starting segmented export for 'Email'")
         process_emails()
