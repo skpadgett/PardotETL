@@ -114,7 +114,7 @@ def get_session_boto() -> boto3.Session:
     )
 
 
-def get_date_start_snowflake(data_type: str = None) -> dt.date:
+def get_date_start_snowflake(data_type,tagobject_type=None) -> dt.date:
     "Return the latest updated_at date in Snowflake for the specified data type"
 
     ctx = get_client_snowflake()
@@ -130,6 +130,11 @@ def get_date_start_snowflake(data_type: str = None) -> dt.date:
     if data_type in {"EmailClick"}:
         name_field_table = "CREATED_AT"
 
+    if tagobject_type!=None:
+        type_filter = f" and type={tagobject_type !r}"
+    else:
+        type_filter = ''
+
     cs = ctx.cursor()
     try:
         # Check if the table exists in SnowFlake
@@ -142,7 +147,7 @@ def get_date_start_snowflake(data_type: str = None) -> dt.date:
             cs.execute(
                 f"""SELECT max({name_field_table})
                 FROM {name_table_snowflake}
-                WHERE {name_field_table} IS NOT null"""
+                WHERE {name_field_table} IS NOT null{type_filter}"""
             )
             one_row = cs.fetchone()
             if one_row is None:
@@ -384,9 +389,120 @@ def export_segmented(data_type: str) -> int:
                     if data_type in SET_DATA_TYPE_CREATED
                     else {}
                 ),
+            )
+
+            global_num_calls_api += 1
+
+            list_records = data_raw[helper_to_camelCase(data_type)]
+            #                       ^ Key is camelCase
+            _total_results = int(data_raw["total_results"])
+
+            if _total_results == 0:
+                break
+
+            id_max = int(list_records[-1]["id"])
+
+            if _total_results > int_total_results_cumulative:
+                int_total_results_cumulative = _total_results
+
+            list_buffer_results.extend(list_records)
+
+            if len(list_buffer_results) >= INT_MAX_BUFFER:
+                _export_segmented_upload_helper(list_buffer_results)
+                list_buffer_results.clear()
+
+            if _total_results < PARDOT_MAX_RESULT_COUNT:
+                # Reached end of results, break
+                break
+
+            if time.time() > (time_start + TIMEOUT_SECONDS):
+                raise Exception(
+                    f"Timeout ({TIMEOUT_SECONDS} seconds) reached for data type {data_type !r}"
+                )
+
+        # Flush remaining results (if any)
+        _export_segmented_upload_helper(list_buffer_results)
+
+    print(
+        f"Total results written for data type {data_type !r}: {int_total_results_cumulative}"
+    )
+
+    return int_total_results_cumulative
+
+def export_tagobject_segmented(tagobject_type,data_type="TagObject"):
+    "API export through regular, segmented API calls"
+
+    global global_num_calls_api
+
+    p = get_client_pardot()
+
+    try:
+        data_client = getattr(p, DICT_CONVERSION_PURAL[data_type])
+    except AttributeError:
+        raise Exception(f"{data_type} is not a valid selection!")
+
+    date_start = get_date_start_snowflake(data_type,tagobject_type=tagobject_type)
+
+    session_aws = get_session_boto()
+    bucket_destination = session_aws.resource("s3").Bucket(AWS_NAME_BUCKET)
+
+    def _export_segmented_upload_helper(data: typing.List[dict]):
+        "Transform list of dicts to CSV format, uploads to S3 bucket"
+
+        assert isinstance(data, list)
+
+        if len(data) == 0:
+            return
+
+        buffer = io.StringIO()
+        pd.DataFrame(data).to_csv(buffer, index=False)
+
+        file_name = (
+            f"{data_type}/{data_type}_api_{time.strftime(FORMAT_WRITETIME)}.csv"
+        )
+        bucket_destination.Object(key=file_name).put(Body=buffer.getvalue())
+
+        print(f"Wrote file {file_name} with {len(data)} rows")
+
+    if not hasattr(data_client, "query"):
+        # If the data_client doesn't have a query method, try the "read" method
+
+        data = data_client.read()[helper_to_camelCase(data_type)]
+        global_num_calls_api += 1
+
+        if isinstance(data, dict):
+            # Assume only one record
+
+            _export_segmented_upload_helper([data])
+            int_total_results_cumulative = 1
+
+        elif isinstance(data, list):
+            # Assume mulitiple records
+
+            _export_segmented_upload_helper(data)
+            int_total_results_cumulative = len(data)
+
+    else:
+        # Data client has query method, proceed
+
+        time_start: int = time.time()
+        id_max: int = 0
+        int_total_results_cumulative: int = 0
+        list_buffer_results: typing.List[dict] = []
+        while True:
+            # ^ Yes, this is dangerous, but its necessary for allowing more information
+
+            time.sleep(1)
+
+            data_raw = data_client.query(
+                format="json",
+                sort_by="id",
+                id_greater_than=id_max,
+                updated_after=date_start.isoformat(),
+                type=tagobject_type,
                 **(
-                    dict(type="Email")
-                    if data_type == "TagObject"
+                    dict(created_after=date_start.isoformat())
+                    if data_type in SET_DATA_TYPE_CREATED
                     else {}
                 ),
             )
@@ -401,7 +517,8 @@ def export_segmented(data_type: str) -> int:
                 break
 
             id_max = int(list_records[-1]["id"])
-            int_total_results_cumulative += _total_results
+            if _total_results > int_total_results_cumulative:
+                int_total_results_cumulative = _total_results
 
             list_buffer_results.extend(list_records)
 
@@ -505,6 +622,7 @@ def pull_missing_email_ids():
 def process_emails(data_type='Email'):
 
     emails = pull_missing_email_ids()
+    print(f"Total expected Email results: {len(emails)}")
     p = get_client_pardot()
 
     data = [pull_email_info(email[0],email[1],p) for email in emails]
@@ -549,12 +667,15 @@ if __name__ == "__main__":
         "Campaign",
         "Form",
         "Tag",
-        "TagObject",
         "Opportunity",
         "EmailClick",
         "List",
         "Account",
     ]
+
+    # TagObject has a massive amount of data, so only query for these three
+    # You can't specify "in" with the API, only a single type at a time
+    tag_object_types = ["Email","Campaign","List"]
 
     try:
 
@@ -565,6 +686,10 @@ if __name__ == "__main__":
         for data_type in list_data_type_segmented:
             print(f"Starting segmented export for {data_type !r}")
             export_segmented(data_type)
+
+        for tag_type in tag_object_types:
+            print(f"Starting segment export for TagObject type {tag_type !r}")
+            export_tagobject_segmented(tagobject_type=tag_type)
 
         print("Starting segmented export for 'Email'")
         process_emails()
