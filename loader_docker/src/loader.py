@@ -169,6 +169,7 @@ def get_date_start_snowflake(data_type: str = None) -> dt.date:
         )
 
     ## Placeholder for testing
+    # return DATE_VERY_EARLY
     # return dt.date.today() - dt.timedelta(days=1)
 
 
@@ -383,6 +384,11 @@ def export_segmented(data_type: str) -> int:
                     if data_type in SET_DATA_TYPE_CREATED
                     else {}
                 ),
+                **(
+                    dict(type="Email")
+                    if data_type == "TagObject"
+                    else {}
+                ),
             )
 
             global_num_calls_api += 1
@@ -543,7 +549,7 @@ if __name__ == "__main__":
         "Campaign",
         "Form",
         "Tag",
-        #"TagObject", # Figure out if you can remove types. This isn't every going to finish
+        "TagObject",
         "Opportunity",
         "EmailClick",
         "List",

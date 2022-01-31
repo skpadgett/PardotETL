@@ -52,7 +52,7 @@ The process of segmented exports is as follows:
 * As these requests are being made, upload a file each time the total count reaches 1000 records (except the scenario where there are less than 1000 total records left... aka the end of the process)
 
 
-*Note, the process for the email object is different because you cannot query by a timeframe for all relevant emails in the v4 of Pardot's API. For this, the code searches visitor_activity for all list_email_id's and the minimum email_id associated with it. From here an HTTP request for every single email_id is made. Once all the records have been collected, a file is uploaded to S3. The reason that the minimum email_id is collected is because the email metadata for any one list_email_id is identical across all email_id's (aka list_email_id has a many-to-1 relationship with email_id)*
+*Note, the process for the email object is different because you cannot query by a timeframe for all relevant emails in v4 of Pardot's API. For this, the code searches visitor_activity for all list_email_id's and the minimum email_id associated with it. From here an HTTP request for every single email_id is made. Once all the records have been collected, a file is uploaded to S3. The reason that the minimum email_id is collected is because the email metadata for any one list_email_id is identical across all email_id's (aka list_email_id has a many-to-1 relationship with email_id)*
 
 # Deployment
 
