@@ -29,6 +29,7 @@ AWS_SNS_TOPIC_ARN_EMAIL_NOTIFICATION = (
 SNOWFLAKE_ACCOUNT_IDENTIFIER = os.environ["SNOWFLAKE_ACCOUNT_IDENTIFIER"]
 SNOWFLAKE_USER = os.environ["SNOWFLAKE_USER"]
 SNOWFLAKE_PASS = os.environ["SNOWFLAKE_PASS"]
+SF_SCHEMA = os.environ["SF_SCHEMA"]
 
 TIMEOUT_SECONDS = 60 * 60 * 6  # <-- 6 Hour timeout
 PARDOT_URL_API = f"https://pi.pardot.com/api/export/version/{PARDOT_API_VERSION}"
@@ -58,7 +59,6 @@ DICT_CONVERSION_PURAL = {
     "ProspectAccount": "prospectaccounts",
 }
 
-DICT_MAP_SNOWFLAKE_TABLE = {"Opportunity": "Opportunities"}
 SET_DATA_TYPE_CREATED = {
     # This set is for the data types that do not have a "updated_after" filter,
     # and must be queried usng the "created_after" filter
@@ -123,9 +123,8 @@ def get_date_start_snowflake(data_type,tagobject_type=None) -> dt.date:
         # Return very early date if its not supported
         return DATE_VERY_EARLY
 
-    _data_type = DICT_MAP_SNOWFLAKE_TABLE.get(data_type, data_type)
     # ^ Some data types need to be changed for the snowflake table name
-    name_table_snowflake = f"PARDOT_{_data_type.upper()}"
+    name_table_snowflake = f"PARDOT_{data_type.upper()}"
     name_field_table = "UPDATED_AT"
     if data_type in {"EmailClick"}:
         name_field_table = "CREATED_AT"
@@ -136,9 +135,10 @@ def get_date_start_snowflake(data_type,tagobject_type=None) -> dt.date:
         type_filter = ''
 
     cs = ctx.cursor()
+
     try:
         # Check if the table exists in SnowFlake
-        cs.execute(f"SHOW TABLES LIKE '{name_table_snowflake}' IN DEV_DATA_VAULT.Stage")
+        cs.execute(f"SHOW TABLES LIKE '{name_table_snowflake}'")
         table_check = cs.fetchone()
 
         if table_check is None:
@@ -185,7 +185,7 @@ def get_client_snowflake():
         account=SNOWFLAKE_ACCOUNT_IDENTIFIER,
         # authenticator="externalbrowser",
         warehouse="GENERAL_COMPUTE_WH",
-        database="DEV_DATA_VAULT",
+        database=SF_SCHEMA,
         schema="STAGE",
     )
 
@@ -220,17 +220,9 @@ def export_bulk(data_type: str):
                 "procedure": {
                     "name": "filter_by_updated_at",
                     "arguments": {
-                        "updated_after": (
-                            dt.date.today() - dt.timedelta(days=1)
-                        ).isoformat(),
-                        **(
-                            dict(created_after=date_start.isoformat())
-                            if data_type in SET_DATA_TYPE_CREATED
-                            else {}
-                        ),
-                        # "updated_before": (
-                        #     dt.date.today() - dt.timedelta(days=0)
-                        # ).isoformat(),  # "2021-01-02 00:00:01",
+                        # TODO, why is this using the day before for update filter
+                        # TODO if it is filtered by update date, why add in create date
+                        "updated_after": date_start.isoformat(),
                     },
                 },
             }
@@ -377,7 +369,7 @@ def export_segmented(data_type: str) -> int:
         while True:
             # ^ Yes, this is dangerous, but its necessary for allowing more information
 
-            time.sleep(1)
+            time.sleep(2)
 
             data_raw = data_client.query(
                 format="json",
@@ -492,7 +484,7 @@ def export_tagobject_segmented(tagobject_type,data_type="TagObject"):
         while True:
             # ^ Yes, this is dangerous, but its necessary for allowing more information
 
-            time.sleep(1)
+            time.sleep(2)
 
             data_raw = data_client.query(
                 format="json",
@@ -589,30 +581,19 @@ def pull_missing_email_ids():
     cs = ctx.cursor()
 
     # TODO, remove snowflake_query_2 when the tables are built
-    snowflake_query = """select 
+    snowflake_query = f"""select 
         a.list_email_id, min(a.email_id) 
-        from dev_data_vault.marketing.visitor_activity a
-        join (select distinct list_email_id from dev_data_vault.marketing.email) b
+        from VisitorActivity a
+        left join (select distinct list_email_id from email) b
         on a.list_email_id = b.list_email_id
         where a.email_id is not null and a.list_email_id is not null 
         And b.list_email_id is null
         group by a.list_email_id
     """
 
-    snowflake_query_2 = """select 
-        a.list_email_id, min(a.email_id)
-        from dev_data_vault.marketing.visitor_activity a
-        where a.email_id is not null and a.list_email_id is not null 
-        group by a.list_email_id
-    """
-
     try:
         cs.execute(snowflake_query)
         missing_ids =  cs.fetchall()
-    except:
-        # If email table doesn't exist (first run I think?)
-        cs.execute(snowflake_query_2)
-        missing_ids =  cs.fetchall()   
     finally:
         cs.close()
     ctx.close()
@@ -656,18 +637,18 @@ def process_emails(data_type='Email'):
 if __name__ == "__main__":
 
     list_data_type_bulk = [
+        "VisitorActivity",
         "ListMembership",
         "Prospect",
         "ProspectAccount",
         "Visitor",
-        "VisitorActivity",
     ]
 
     list_data_type_segmented = [
-        "Campaign",
-        "Form",
-        "Tag",
-        "Opportunity",
+        # "Campaign",
+        # "Form",
+        # "Tag",
+        # "Opportunity",
         "EmailClick",
         "List",
         "Account",
@@ -679,9 +660,9 @@ if __name__ == "__main__":
 
     try:
 
-        for data_type in list_data_type_bulk:
-            print(f"Starting bulk export for {data_type !r}")
-            export_bulk(data_type)
+        # for data_type in list_data_type_bulk:
+        #     print(f"Starting bulk export for {data_type !r}")
+        #     export_bulk(data_type)
 
         for data_type in list_data_type_segmented:
             print(f"Starting segmented export for {data_type !r}")
