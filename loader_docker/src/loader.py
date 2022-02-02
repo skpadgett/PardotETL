@@ -31,7 +31,7 @@ SNOWFLAKE_USER = os.environ["SNOWFLAKE_USER"]
 SNOWFLAKE_PASS = os.environ["SNOWFLAKE_PASS"]
 SF_SCHEMA = os.environ["SF_SCHEMA"]
 
-TIMEOUT_SECONDS = 60 * 60 * 6  # <-- 6 Hour timeout
+TIMEOUT_SECONDS = 60 * 60 * 8  # <-- 8 Hour timeout (TODO, lower this after the historical load)
 PARDOT_URL_API = f"https://pi.pardot.com/api/export/version/{PARDOT_API_VERSION}"
 FORMAT_WRITETIME = r"%Y%m%d-%H%M%S"
 FORMAT_DATETIME_API = r"%Y-%m-%d:%H:%M:%S"
@@ -163,11 +163,11 @@ def get_date_start_snowflake(data_type,tagobject_type=None) -> dt.date:
         # Return a very early datetime
         return DATE_VERY_EARLY
     elif isinstance(result, str):
-        return dt.datetime.strptime(result, "%Y-%m-%d:%H:%M:%S").date
+        return dt.datetime.strptime(result, "%Y-%m-%d:%H:%M:%S").date()
+    elif isinstance(result, dt.datetime):
+        return result.date()
     elif isinstance(result, dt.date):
         return result
-    elif isinstance(result, dt.datetime):
-        return result.date
     else:
         raise Exception(
             f"Unknown result: {result !r} from row {one_row !r} for data type {data_type !r}"
@@ -209,6 +209,7 @@ def export_bulk(data_type: str):
     }
 
     date_start = get_date_start_snowflake(data_type)
+    print(date_start)
 
     # If it is the early date, then need to pull all historical data ranges
     # Can only pull 365 days at a time
@@ -227,6 +228,14 @@ def export_bulk(data_type: str):
         # First pull the very first record
         early_record = data_client.query(limit=1,sort_by="created_at",sort_order="ascending",)  
         early_date_str = early_record[key_mapping[data_type]]["created_at"]
+        
+        # early_date_dict = {"VisitorActivity":"2015-04-15 11:34:45",
+        # "ListMembership":"2020-03-24 11:16:50",
+        # "Prospect":"2020-03-20 08:40:34",
+        # "ProspectAccount":"2020-05-07 11:56:49",
+        # "Visitor":"2020-04-29 14:29:59",}
+        # early_date_str = early_date_dict[data_type]
+        
         # early_date
         early_date_date = dt.datetime.strptime(early_date_str, "%Y-%m-%d %H:%M:%S").date()
         # Create list with every range of year's dates
@@ -239,10 +248,6 @@ def export_bulk(data_type: str):
     else:
         export_range = [[date_start,dt.datetime.now().date()]]
 
-    # # Use this to get those missing days
-    # # TODO, once you run this for the historical load, remove from code after
-    # export_range = [["2020-12-31","2020-12-31"],["2021-12-31","2021-12-31"]]
-    
     for date_range in export_range:
 
         updated_after= dt.datetime.strptime(str(date_range[0]) + " 00:00:00", "%Y-%m-%d %H:%M:%S").isoformat()
@@ -278,7 +283,7 @@ def export_bulk(data_type: str):
 
         time_start = time.time()
         i = 0
-        SECONDS_SLEEP = 60
+        SECONDS_SLEEP = 120
         while time.time() < (time_start + TIMEOUT_SECONDS):
             i += 1
 
@@ -288,6 +293,11 @@ def export_bulk(data_type: str):
                     headers=headers,
                     params=(("format", "json"),),
                 )
+                # response_status = requests.get(
+                #     f"{PARDOT_URL_API}/do/read/id/4516",
+                #     headers=headers,
+                #     params=(("format", "json"),),
+                # )
             except KeyError as e:
                 print(response_create.json())
                 raise e
@@ -616,7 +626,6 @@ def pull_email_info(list_email_id,email_id,pardot_client):
         dom = ElementTree.fromstring(response.content)
         email_dom = dom.findall('email')[0]
         result = {
-            "email":email_dom.text.replace('\n','').replace('  ',''),
             "email_id":email_dom.findall('id')[0].text,
             "list_email_id":list_email_id,
             "name":email_dom.findall('name')[0].text,
@@ -639,7 +648,6 @@ def pull_missing_email_ids():
     ctx = get_client_snowflake()
     cs = ctx.cursor()
 
-    # TODO, remove snowflake_query_2 when the tables are built
     snowflake_query = f"""select 
         a.list_email_id, min(a.email_id) 
         from PARDOT_VISITORACTIVITY a
@@ -665,8 +673,6 @@ def process_emails(data_type='Email'):
     print(f"Total expected Email results: {len(emails)}")
     p = get_client_pardot()
 
-    data = [pull_email_info(email[0],email[1],p) for email in emails]
-
     def _export_segmented_upload_helper(data: typing.List[dict]):
         "Transform list of dicts to CSV format, uploads to S3 bucket"
         session_aws = get_session_boto()
@@ -687,7 +693,13 @@ def process_emails(data_type='Email'):
 
         print(f"Wrote file {file_name} with {len(data)} rows")
 
-    _export_segmented_upload_helper(data)
+    # This keeps having concurrency issues, so just do in chunks so if you restart
+    # you at least can start off where you left off
+    process_chunks = [emails[i:i + 10] for i in range(0, len(emails), 10)]
+
+    for chunk in process_chunks:
+        data = [pull_email_info(x[0],x[1],p) for x in chunk]
+        _export_segmented_upload_helper(data)
 
     return
 
@@ -697,10 +709,10 @@ if __name__ == "__main__":
 
     list_data_type_bulk = [
         "VisitorActivity",
-        "ListMembership",
         "Prospect",
         "ProspectAccount",
         "Visitor",
+        "ListMembership",
     ]
 
     list_data_type_segmented = [
@@ -719,9 +731,9 @@ if __name__ == "__main__":
 
     try:
 
-        # for data_type in list_data_type_bulk:
-        #     print(f"Starting bulk export for {data_type !r}")
-        #     export_bulk(data_type)
+        for data_type in list_data_type_bulk:
+            print(f"Starting bulk export for {data_type !r}")
+            export_bulk(data_type)
 
         for data_type in list_data_type_segmented:
             print(f"Starting segmented export for {data_type !r}")
