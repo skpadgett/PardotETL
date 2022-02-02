@@ -117,64 +117,64 @@ def get_session_boto() -> boto3.Session:
 def get_date_start_snowflake(data_type,tagobject_type=None) -> dt.date:
     "Return the latest updated_at date in Snowflake for the specified data type"
 
-    # ctx = get_client_snowflake()
+    ctx = get_client_snowflake()
 
-    # if data_type in ["Campaign"]:
-    #     # Return very early date if its not supported
-    #     return DATE_VERY_EARLY
+    if data_type in ["Campaign"]:
+        # Return very early date if its not supported
+        return DATE_VERY_EARLY
 
-    # # ^ Some data types need to be changed for the snowflake table name
-    # name_table_snowflake = f"PARDOT_{data_type.upper()}"
-    # name_field_table = "UPDATED_AT"
-    # if data_type in ["EmailClick","TagObject"]:
-    #     name_field_table = "CREATED_AT"
+    # ^ Some data types need to be changed for the snowflake table name
+    name_table_snowflake = f"PARDOT_{data_type.upper()}"
+    name_field_table = "UPDATED_AT"
+    if data_type in ["EmailClick","TagObject"]:
+        name_field_table = "CREATED_AT"
 
-    # if tagobject_type!=None:
-    #     type_filter = f" and type={tagobject_type !r}"
-    # else:
-    #     type_filter = ''
+    if tagobject_type!=None:
+        type_filter = f" and type={tagobject_type !r}"
+    else:
+        type_filter = ''
 
-    # cs = ctx.cursor()
+    cs = ctx.cursor()
 
-    # try:
-    #     # Check if the table exists in SnowFlake
-    #     cs.execute(f"SHOW TABLES LIKE '{name_table_snowflake}'")
-    #     table_check = cs.fetchone()
+    try:
+        # Check if the table exists in SnowFlake
+        cs.execute(f"SHOW TABLES LIKE '{name_table_snowflake}'")
+        table_check = cs.fetchone()
 
-    #     if table_check is None:
-    #         raise Exception(f'{name_table_snowflake} doesn''t exist in SnowFlake. Add table & snowpipe')
-    #     else:
-    #         cs.execute(
-    #             f"""SELECT max({name_field_table})
-    #             FROM {name_table_snowflake}
-    #             WHERE {name_field_table} IS NOT null{type_filter}"""
-    #         )
-    #         one_row = cs.fetchone()
-    #         if one_row is None:
-    #             result = None
-    #         else:
-    #             result = one_row[0]
+        if table_check is None:
+            raise Exception(f'{name_table_snowflake} doesn''t exist in SnowFlake. Add table & snowpipe')
+        else:
+            cs.execute(
+                f"""SELECT max({name_field_table})
+                FROM {name_table_snowflake}
+                WHERE {name_field_table} IS NOT null{type_filter}"""
+            )
+            one_row = cs.fetchone()
+            if one_row is None:
+                result = None
+            else:
+                result = one_row[0]
 
-    # finally:
-    #     cs.close()
-    # ctx.close()
+    finally:
+        cs.close()
+    ctx.close()
 
-    # if result is None:
-    #     # Return a very early datetime
-    #     return DATE_VERY_EARLY
-    # elif isinstance(result, str):
-    #     return dt.datetime.strptime(result, "%Y-%m-%d:%H:%M:%S").date
-    # elif isinstance(result, dt.date):
-    #     return result
-    # elif isinstance(result, dt.datetime):
-    #     return result.date
-    # else:
-    #     raise Exception(
-    #         f"Unknown result: {result !r} from row {one_row !r} for data type {data_type !r}"
-    #     )
+    if result is None:
+        # Return a very early datetime
+        return DATE_VERY_EARLY
+    elif isinstance(result, str):
+        return dt.datetime.strptime(result, "%Y-%m-%d:%H:%M:%S").date
+    elif isinstance(result, dt.date):
+        return result
+    elif isinstance(result, dt.datetime):
+        return result.date
+    else:
+        raise Exception(
+            f"Unknown result: {result !r} from row {one_row !r} for data type {data_type !r}"
+        )
 
     ## Placeholder for testing
-    return DATE_VERY_EARLY
+    # return DATE_VERY_EARLY
     # return dt.date.today() - dt.timedelta(days=1)
 
 
@@ -212,36 +212,36 @@ def export_bulk(data_type: str):
 
     # If it is the early date, then need to pull all historical data ranges
     # Can only pull 365 days at a time
-    # if date_start == DATE_VERY_EARLY:
-    #     key_mapping = {
-    #         "VisitorActivity":"visitor_activity",
-    #         "ListMembership":"list_membership",
-    #         "Prospect":"prospect",
-    #         "ProspectAccount":"prospectAccount",
-    #         "Visitor":"visitor",
-    #     }
-    #     try:
-    #         data_client = getattr(p, DICT_CONVERSION_PURAL[data_type])
-    #     except AttributeError:
-    #         raise Exception(f"{data_type} is not a valid selection!")
-    #     # First pull the very first record
-    #     early_record = data_client.query(limit=1,sort_by="created_at",sort_order="ascending",)  
-    #     early_date_str = early_record[key_mapping[data_type]]["created_at"]
-    #     # early_date
-    #     early_date_date = dt.datetime.strptime(early_date_str, "%Y-%m-%d %H:%M:%S").date()
-    #     # Create list with every range of year's dates
-    #     yr_range = [early_date_date.year,dt.datetime.now().year]
-    #     export_range = [[f'{year}-01-01',f'{year}-12-31'] for year in range(yr_range[0],yr_range[1]+1)]
-    # # If it is > 1 year away, also need to do in chunks
-    # elif dt.datetime.now().date() - dt.timedelta(days = 365) > date_start:
-    #     yr_range = [date_start.year,dt.datetime.now().year]
-    #     export_range = [[f'{year}-01-01',f'{year}-12-31'] for year in range(yr_range[0],yr_range[1]+1)]
-    # else:
-    #     export_range = [[date_start,dt.datetime.now().date()]]
+    if date_start == DATE_VERY_EARLY:
+        key_mapping = {
+            "VisitorActivity":"visitor_activity",
+            "ListMembership":"list_membership",
+            "Prospect":"prospect",
+            "ProspectAccount":"prospectAccount",
+            "Visitor":"visitor",
+        }
+        try:
+            data_client = getattr(p, DICT_CONVERSION_PURAL[data_type])
+        except AttributeError:
+            raise Exception(f"{data_type} is not a valid selection!")
+        # First pull the very first record
+        early_record = data_client.query(limit=1,sort_by="created_at",sort_order="ascending",)  
+        early_date_str = early_record[key_mapping[data_type]]["created_at"]
+        # early_date
+        early_date_date = dt.datetime.strptime(early_date_str, "%Y-%m-%d %H:%M:%S").date()
+        # Create list with every range of year's dates
+        yr_range = [early_date_date.year,dt.datetime.now().year]
+        export_range = [[f'{year}-01-01',f'{year}-12-31'] for year in range(yr_range[0],yr_range[1]+1)]
+    # If it is > 1 year away, also need to do in chunks
+    elif dt.datetime.now().date() - dt.timedelta(days = 365) > date_start:
+        yr_range = [date_start.year,dt.datetime.now().year]
+        export_range = [[f'{year}-01-01',f'{year}-12-31'] for year in range(yr_range[0],yr_range[1]+1)]
+    else:
+        export_range = [[date_start,dt.datetime.now().date()]]
 
     # # Use this to get those missing days
     # # TODO, once you run this for the historical load, remove from code after
-    export_range = [["2020-12-31","2020-12-31"],["2021-12-31","2021-12-31"]]
+    # export_range = [["2020-12-31","2020-12-31"],["2021-12-31","2021-12-31"]]
     
     for date_range in export_range:
 
@@ -249,7 +249,7 @@ def export_bulk(data_type: str):
         updated_before= dt.datetime.strptime(str(date_range[1]) + " 23:59:59", "%Y-%m-%d %H:%M:%S").isoformat()
 
         print("Data Type:", data_type)
-        print("Range:",updated_after,updated_before)
+        print("Export Range:",updated_after,updated_before)
 
         response_create = requests.post(
             f"{PARDOT_URL_API}/do/create",
@@ -261,8 +261,6 @@ def export_bulk(data_type: str):
                     "procedure": {
                         "name": "filter_by_updated_at",
                         "arguments": {
-                            # TODO, why is this using the day before for update filter
-                            # TODO if it is filtered by update date, why add in create date
                             "updated_after": updated_after,
                             "updated_before": updated_before,
                         },
@@ -721,9 +719,9 @@ if __name__ == "__main__":
 
     try:
 
-        for data_type in list_data_type_bulk:
-            print(f"Starting bulk export for {data_type !r}")
-            export_bulk(data_type)
+        # for data_type in list_data_type_bulk:
+        #     print(f"Starting bulk export for {data_type !r}")
+        #     export_bulk(data_type)
 
         for data_type in list_data_type_segmented:
             print(f"Starting segmented export for {data_type !r}")
