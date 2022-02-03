@@ -31,8 +31,9 @@ Pardot APIs allow for bulk exports for:
 * "VisitorActivity"
 
 The process of a bulk exports is as follows:
-* Make a HTTP request for a bulk export of a data object (CSV) based on a specified time frame (this timeframe is determined by querying for the latest timestamp in the associated SnowFlake table and subtracting 1 day from it). If a date doesn't exist, it will use a default date of 01-01-1900 to ensure a full historical load is done.
-* Check the status of the export every minute using HTTP requests
+* Make a HTTP request for a bulk export of a data object (CSV) based on a specified time frame (this timeframe is determined by querying for the latest timestamp in the associated SnowFlake table and subtracting 1 day from it). If a date doesn't exist, query Pardot for the earliest timestamp available for the object.
+* Bulk exports can only be in 365 day chunks, so determine the year ranges based on the timestamp. IE, if the earliest timestamp is 2020-01-01 and today's date is 2022-02-03, then loop through "2020-01-01 - 2020-12-31, 2021-01-01 - 2021-12-31 & 2022-01-01 - 2022-02-03".
+* Check the status of the export every 2 minutes using HTTP requests
 * Once the status turns to complete, loop through each of the files (they generate multiple files for a bulk export) and upload to the S3 bucket
 
 Pardot APIs allow for segmented exports for:
