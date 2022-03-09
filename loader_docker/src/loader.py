@@ -21,21 +21,20 @@ PARDOT_SF_REFRESH_TOKEN = os.environ["pardotSfRefreshToken"]
 PARDOT_BUSINESS_UNIT_ID = os.environ["pardotSfBusinessUnitID"]
 PARDOT_API_VERSION = os.environ["pardotVersion"]
 PARDOT_MAX_RESULT_COUNT = 200
+
 AWS_NAME_BUCKET = os.environ["AWS_NAME_BUCKET"]
 AWS_DEFAULT_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
-AWS_SNS_TOPIC_ARN_EMAIL_NOTIFICATION = (
-    "arn:aws:sns:us-east-1:768217030320:test-topic-email-notification"
-)
+
 SNOWFLAKE_ACCOUNT_IDENTIFIER = os.environ["SNOWFLAKE_ACCOUNT_IDENTIFIER"]
 SNOWFLAKE_USER = os.environ["SNOWFLAKE_USER"]
 SNOWFLAKE_PASS = os.environ["SNOWFLAKE_PASS"]
 SF_SCHEMA = os.environ["SF_SCHEMA"]
 
-TIMEOUT_SECONDS = 60 * 60 * 8  # <-- 8 Hour timeout (TODO, lower this after the historical load)
+TIMEOUT_SECONDS = 60 * 60 * 8  # <-- 8 Hour timeout
 PARDOT_URL_API = f"https://pi.pardot.com/api/export/version/{PARDOT_API_VERSION}"
 FORMAT_WRITETIME = r"%Y%m%d-%H%M%S"
 FORMAT_DATETIME_API = r"%Y-%m-%d:%H:%M:%S"
-# ^ Depricated, isoformat only works
+# ^ Deprecated, isoformat only works
 INT_MAX_BUFFER = 1000
 # ^ Limit number of records of output file for segmented export to this number
 
@@ -67,9 +66,6 @@ SET_DATA_TYPE_CREATED = {
 }
 
 global_num_calls_api: int = 0
-
-
-# TODO: Add number of API calls made after process to SNS topic
 
 
 def get_client_pardot() -> PardotAPI:
@@ -129,6 +125,7 @@ def get_date_start_snowflake(data_type,tagobject_type=None) -> dt.date:
     if data_type in ["EmailClick","TagObject"]:
         name_field_table = "CREATED_AT"
 
+    # TagObject is queried by type, so add that to where if applicable
     if tagobject_type!=None:
         type_filter = f" and type={tagobject_type !r}"
     else:
@@ -173,11 +170,6 @@ def get_date_start_snowflake(data_type,tagobject_type=None) -> dt.date:
             f"Unknown result: {result !r} from row {one_row !r} for data type {data_type !r}"
         )
 
-    ## Placeholder for testing
-    # return DATE_VERY_EARLY
-    # return dt.date.today() - dt.timedelta(days=1)
-
-
 def get_client_snowflake():
     return snowflake.connector.connect(
         user=SNOWFLAKE_USER,
@@ -190,7 +182,7 @@ def get_client_snowflake():
     )
 
 
-def export_bulk(data_type: str):
+def export_bulk(data_type: str, delete_flag=False):
     """Bulked export (which is prefered), wherein a job is queued and executed
     server-side that will give result URLs"""
 
@@ -209,7 +201,6 @@ def export_bulk(data_type: str):
     }
 
     date_start = get_date_start_snowflake(data_type)
-    print(date_start)
 
     # If it is the early date, then need to pull all historical data ranges
     # Can only pull 365 days at a time
@@ -268,6 +259,7 @@ def export_bulk(data_type: str):
                         "arguments": {
                             "updated_after": updated_after,
                             "updated_before": updated_before,
+                            **(dict(deleted="false") if delete_flag == True else {})
                         },
                     },
                 }
@@ -329,8 +321,13 @@ def export_bulk(data_type: str):
             response_data = requests.get(url_read, headers=headers)
             global_num_calls_api += 1
 
+            if delete_flag == True:
+                s3_key = f"{data_type}Delete"
+            else:
+                s3_key = data_type
+
             file_name = (
-                f"{data_type}/{data_type}_bulk_{time.strftime(FORMAT_WRITETIME)}.csv"
+                f"{s3_key}/{s3_key}_bulk_{time.strftime(FORMAT_WRITETIME)}.csv"
             )
             bucket_destination.Object(key=file_name).put(Body=response_data.text)
 
@@ -639,7 +636,7 @@ def pull_email_info(list_email_id,email_id,pardot_client):
 
     return result
 
-def pull_missing_email_ids():
+def pull_missing_email_ids(data_type):
     """
     Pulls a list of all the list_email_ids that haven't been accounted for in the dev_data_vault.email table. V4 of 
     the Pardot API doesn't allow you to pull out a batch of emails, so a workaround is to grab one email_id for
@@ -648,15 +645,27 @@ def pull_missing_email_ids():
     ctx = get_client_snowflake()
     cs = ctx.cursor()
 
-    snowflake_query = f"""select 
-        a.list_email_id, min(a.email_id) 
-        from PARDOT_VISITORACTIVITY a
-        left join (select distinct list_email_id from PARDOT_EMAIL) b
-        on a.list_email_id = b.list_email_id
-        where a.email_id is not null and a.list_email_id is not null 
-        And b.list_email_id is null
-        group by a.list_email_id
-    """
+    if data_type=='Email':
+        snowflake_query = f"""select 
+            a.list_email_id, min(a.email_id) 
+            from PARDOT_VISITORACTIVITY a
+            left join (select distinct list_email_id from PARDOT_EMAIL) b
+            on a.list_email_id = b.list_email_id
+            where a.email_id is not null and a.list_email_id is not null 
+            And b.list_email_id is null
+            group by a.list_email_id
+        """
+    else:
+         snowflake_query = f"""
+            select distinct a.list_email_id from (
+            (select distinct list_email_id, CREATED_AT from PARDOT_VISITORACTIVITY
+            where list_email_id is not null) a
+            left join PARDOT_EMAILSTAT b
+            on a.list_email_id = b.list_email_id)
+            where b.list_email_id is null
+            or a.CREATED_AT >= DATEADD(Day ,-30, current_date)
+            """
+      
 
     try:
         cs.execute(snowflake_query)
@@ -667,9 +676,10 @@ def pull_missing_email_ids():
     
     return missing_ids
 
+
 def process_emails(data_type='Email'):
 
-    emails = pull_missing_email_ids()
+    emails = pull_missing_email_ids(data_type=data_type)
     print(f"Total expected Email results: {len(emails)}")
     p = get_client_pardot()
 
@@ -703,6 +713,77 @@ def process_emails(data_type='Email'):
 
     return
 
+def pull_emailstats_info(list_email_id,pardot_client):
+    # Avoid reserved concurrency issue with sleep
+    
+    global global_num_calls_api
+
+    time.sleep(1)
+
+    headers = {
+    "content-type": "application/json",
+    "Authorization": f"Bearer {pardot_client.sftoken}",
+    "Pardot-Business-Unit-Id": PARDOT_BUSINESS_UNIT_ID,
+    }
+
+    PARDOT_URL_API = f"https://pi.pardot.com/api/email/version/{PARDOT_API_VERSION}/do/stats/id/{list_email_id}"
+
+    response = requests.get(
+        PARDOT_URL_API,
+                headers=headers,
+                params=(("format", "json"),),
+            )
+    try:
+        results = response.json()['stats']
+    except:
+        print(f'List_Email_ID: {list_email_id} failed / will be skipped, {response.json()}')
+        return ''
+
+    results['list_email_id'] = list_email_id
+
+    global_num_calls_api += 1
+
+    return results
+
+def process_email_stats(data_type='EmailStats'):
+
+    emails = pull_missing_email_ids(data_type=data_type)
+    print(f"Total expected Email results: {len(emails)}")
+    p = get_client_pardot()
+
+    def _export_segmented_upload_helper(data: typing.List[dict]):
+        "Transform list of dicts to CSV format, uploads to S3 bucket"
+        session_aws = get_session_boto()
+        bucket_destination = session_aws.resource("s3").Bucket(AWS_NAME_BUCKET)
+
+        assert isinstance(data, list)
+
+        if len(data) == 0:
+            return
+
+        columns = ['list_email_id','sent', 'delivered', 'total_clicks', 'unique_clicks', 'soft_bounced', 'hard_bounced', 'opt_outs', 'spam_complaints', 'opens', 'unique_opens', 'delivery_rate', 'opens_rate', 'click_through_rate', 'unique_click_through_rate', 'click_open_ratio', 'opt_out_rate', 'spam_complaint_rate']
+        buffer = io.StringIO()
+        pd.DataFrame(data,columns=columns).to_csv(buffer, index=False)
+
+        file_name = (
+            f"{data_type}/{data_type}_api_{time.strftime(FORMAT_WRITETIME)}.csv"
+        )
+        bucket_destination.Object(key=file_name).put(Body=buffer.getvalue())
+
+        print(f"Wrote file {file_name} with {len(data)} rows")
+
+    # This keeps having concurrency issues, so just do in chunks so if you restart
+    # you at least can start off where you left off
+    process_chunks = [emails[i:i + 10] for i in range(0, len(emails), 10)]
+
+    for chunk in process_chunks:
+        data = [pull_emailstats_info(x[0],p) for x in chunk]
+        data = [x for x in data if x!='']
+        print(data)
+        _export_segmented_upload_helper(data)
+
+    return
+
   
 
 if __name__ == "__main__":
@@ -725,26 +806,37 @@ if __name__ == "__main__":
         "Account",
     ]
 
+    list_data_type_bulk_delete = [
+        "Prospect"
+    ]
+
     # TagObject has a massive amount of data, so only query for these three
     # You can't specify "in" with the API, only a single type at a time
     tag_object_types = ["Email","Campaign","List"]
 
     try:
 
-        for data_type in list_data_type_bulk:
-            print(f"Starting bulk export for {data_type !r}")
-            export_bulk(data_type)
+        # for data_type in list_data_type_bulk:
+        #     print(f"Starting bulk export for {data_type !r}")
+        #     export_bulk(data_type)
 
-        for data_type in list_data_type_segmented:
-            print(f"Starting segmented export for {data_type !r}")
-            export_segmented(data_type)
+        for data_type in list_data_type_bulk_delete:
+            print(f"Starting bulk export for {data_type !r} deletes")
+            export_bulk(data_type,delete_flag=True)
 
-        for tag_type in tag_object_types:
-            print(f"Starting segment export for TagObject type {tag_type !r}")
-            export_tagobject_segmented(tagobject_type=tag_type)
+        # for data_type in list_data_type_segmented:
+        #     print(f"Starting segmented export for {data_type !r}")
+        #     export_segmented(data_type)
 
-        print("Starting segmented export for 'Email'")
-        process_emails()
+        # for tag_type in tag_object_types:
+        #     print(f"Starting segment export for TagObject type {tag_type !r}")
+        #     export_tagobject_segmented(tagobject_type=tag_type)
+
+        # print("Starting segmented export for 'Email'")
+        # process_emails()
+
+        # print("Starting segmented export for 'EmailStats'")
+        # process_email_stats()
 
     except PardotAPIError as err:
         if err.err_code in [
