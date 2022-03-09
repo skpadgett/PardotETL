@@ -110,7 +110,7 @@ def get_session_boto() -> boto3.Session:
     )
 
 
-def get_date_start_snowflake(data_type,tagobject_type=None) -> dt.date:
+def get_date_start_snowflake(data_type,tagobject_type=None,delete_flag=False) -> dt.date:
     "Return the latest updated_at date in Snowflake for the specified data type"
 
     ctx = get_client_snowflake()
@@ -120,7 +120,10 @@ def get_date_start_snowflake(data_type,tagobject_type=None) -> dt.date:
         return DATE_VERY_EARLY
 
     # ^ Some data types need to be changed for the snowflake table name
-    name_table_snowflake = f"PARDOT_{data_type.upper()}"
+    if delete_flag == True:
+        name_table_snowflake = f"PARDOT_{data_type.upper()}DELETE"
+    else:
+        name_table_snowflake = f"PARDOT_{data_type.upper()}"
     name_field_table = "UPDATED_AT"
     if data_type in ["EmailClick","TagObject"]:
         name_field_table = "CREATED_AT"
@@ -182,7 +185,7 @@ def get_client_snowflake():
     )
 
 
-def export_bulk(data_type: str, delete_flag=False):
+def export_bulk(data_type, delete_flag=False):
     """Bulked export (which is prefered), wherein a job is queued and executed
     server-side that will give result URLs"""
 
@@ -200,7 +203,8 @@ def export_bulk(data_type: str, delete_flag=False):
         "Pardot-Business-Unit-Id": PARDOT_BUSINESS_UNIT_ID,
     }
 
-    date_start = get_date_start_snowflake(data_type)
+    #date_start = dt.date(2015, 1, 1)
+    date_start = get_date_start_snowflake(data_type,delete_flag=delete_flag)
 
     # If it is the early date, then need to pull all historical data ranges
     # Can only pull 365 days at a time
@@ -259,7 +263,7 @@ def export_bulk(data_type: str, delete_flag=False):
                         "arguments": {
                             "updated_after": updated_after,
                             "updated_before": updated_before,
-                            **(dict(deleted="false") if delete_flag == True else {})
+                            **(dict(deleted=True) if delete_flag == True else {})
                         },
                     },
                 }
@@ -816,27 +820,27 @@ if __name__ == "__main__":
 
     try:
 
-        # for data_type in list_data_type_bulk:
-        #     print(f"Starting bulk export for {data_type !r}")
-        #     export_bulk(data_type)
+        for data_type in list_data_type_bulk:
+            print(f"Starting bulk export for {data_type !r}")
+            export_bulk(data_type)
 
-        for data_type in list_data_type_bulk_delete:
-            print(f"Starting bulk export for {data_type !r} deletes")
-            export_bulk(data_type,delete_flag=True)
+        for data_type in list_data_type_segmented:
+            print(f"Starting segmented export for {data_type !r}")
+            export_segmented(data_type)
 
-        # for data_type in list_data_type_segmented:
-        #     print(f"Starting segmented export for {data_type !r}")
-        #     export_segmented(data_type)
+        for tag_type in tag_object_types:
+            print(f"Starting segment export for TagObject type {tag_type !r}")
+            export_tagobject_segmented(tagobject_type=tag_type)
 
-        # for tag_type in tag_object_types:
-        #     print(f"Starting segment export for TagObject type {tag_type !r}")
-        #     export_tagobject_segmented(tagobject_type=tag_type)
+        print("Starting segmented export for 'Email'")
+        process_emails()
 
-        # print("Starting segmented export for 'Email'")
-        # process_emails()
+        print("Starting segmented export for 'EmailStats'")
+        process_email_stats()
 
-        # print("Starting segmented export for 'EmailStats'")
-        # process_email_stats()
+        # for data_type in list_data_type_bulk_delete:
+        #     print(f"Starting bulk export for {data_type !r} deletes")
+        #     export_bulk(data_type,delete_flag=True)
 
     except PardotAPIError as err:
         if err.err_code in [
