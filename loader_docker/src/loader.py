@@ -828,6 +828,10 @@ if __name__ == "__main__":
             print(f"Starting segmented export for {data_type !r}")
             export_segmented(data_type)
 
+        for data_type in list_data_type_bulk_delete:
+            print(f"Starting bulk export for {data_type !r} deletes")
+            export_bulk(data_type,delete_flag=True)
+
         for tag_type in tag_object_types:
             print(f"Starting segment export for TagObject type {tag_type !r}")
             export_tagobject_segmented(tagobject_type=tag_type)
@@ -837,10 +841,6 @@ if __name__ == "__main__":
 
         print("Starting segmented export for 'EmailStats'")
         process_email_stats()
-
-        # for data_type in list_data_type_bulk_delete:
-        #     print(f"Starting bulk export for {data_type !r} deletes")
-        #     export_bulk(data_type,delete_flag=True)
 
     except PardotAPIError as err:
         if err.err_code in [
